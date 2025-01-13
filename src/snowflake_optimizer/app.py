@@ -266,6 +266,10 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
     """
     st.header("Manual Query Analysis")
     
+    # Initialize session state for formatted query
+    if "formatted_query" not in st.session_state:
+        st.session_state.formatted_query = ""
+    
     # Query input methods
     input_method = st.radio(
         "Choose input method",
@@ -274,23 +278,27 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
     
     if input_method == "Direct Input":
         st.markdown("### Enter SQL Query")
+        
+        # Format button before text area
+        if st.button("Format Query"):
+            if st.session_state.formatted_query:
+                st.session_state.formatted_query = format_sql(st.session_state.formatted_query)
+                logging.debug("Query formatted successfully")
+        
+        # Text area for SQL input
         query = st.text_area(
             "SQL Query",
+            value=st.session_state.formatted_query,
             height=200,
             help="Paste your SQL query here for analysis",
-            key="sql_input"
+            key="sql_input",
+            on_change=lambda: setattr(st.session_state, 'formatted_query', st.session_state.sql_input)
         )
-        
-        # Format button
-        if query and st.button("Format Query"):
-            formatted_query = format_sql(query)
-            st.session_state.sql_input = formatted_query
-            st.experimental_rerun()
         
         # Display formatted query with syntax highlighting
         if query:
-            st.markdown("### Formatted Query")
-            st.code(format_sql(query), language="sql")
+            st.markdown("### Preview")
+            st.code(query, language="sql")
         
         # Optional schema information
         if st.checkbox("Add table schema information"):
@@ -313,28 +321,48 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
                     columns=columns,
                     row_count=row_count
                 )
+                logging.debug(f"Schema info updated - Table: {table_name}, Columns: {len(columns)}")
             except json.JSONDecodeError:
+                logging.error("Invalid JSON format provided for columns")
                 st.error("Invalid JSON format for columns")
                 st.session_state.schema_info = None
         
         if st.button("Analyze"):
             if query and analyzer:
+                logging.info("Starting manual query analysis")
                 with st.spinner("Analyzing query..."):
-                    st.session_state.analysis_results = analyzer.analyze_query(
-                        query,
-                        schema_info=st.session_state.schema_info
-                    )
+                    try:
+                        st.session_state.analysis_results = analyzer.analyze_query(
+                            query,
+                            schema_info=st.session_state.schema_info
+                        )
+                        logging.info("Manual query analysis completed successfully")
+                    except Exception as e:
+                        logging.error(f"Manual query analysis failed: {str(e)}")
+                        st.error(f"Analysis failed: {str(e)}")
                     
     elif input_method == "File Upload":
         uploaded_file = st.file_uploader("Upload SQL file", type=["sql"])
         if uploaded_file and analyzer:
-            query = uploaded_file.getvalue().decode()
-            st.markdown("### SQL Query")
-            st.code(format_sql(query), language="sql")
-            
-            if st.button("Analyze"):
-                with st.spinner("Analyzing query..."):
-                    st.session_state.analysis_results = analyzer.analyze_query(query)
+            try:
+                query = uploaded_file.getvalue().decode()
+                st.markdown("### SQL Query")
+                formatted_query = format_sql(query)
+                st.code(formatted_query, language="sql")
+                logging.info(f"SQL file uploaded successfully: {uploaded_file.name}")
+                
+                if st.button("Analyze"):
+                    logging.info("Starting uploaded file analysis")
+                    with st.spinner("Analyzing query..."):
+                        try:
+                            st.session_state.analysis_results = analyzer.analyze_query(formatted_query)
+                            logging.info("File analysis completed successfully")
+                        except Exception as e:
+                            logging.error(f"File analysis failed: {str(e)}")
+                            st.error(f"Analysis failed: {str(e)}")
+            except Exception as e:
+                logging.error(f"Failed to read uploaded file: {str(e)}")
+                st.error(f"Failed to read file: {str(e)}")
                     
     else:  # Batch Analysis
         uploaded_files = st.file_uploader(
@@ -347,19 +375,28 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
             if st.button("Analyze All"):
                 results = []
                 progress_bar = st.progress(0)
+                logging.info(f"Starting batch analysis of {len(uploaded_files)} files")
                 
                 for i, file in enumerate(uploaded_files):
-                    query = file.getvalue().decode()
-                    st.markdown(f"### Query from {file.name}")
-                    st.code(format_sql(query), language="sql")
-                    analysis = analyzer.analyze_query(query)
-                    results.append({
-                        "filename": file.name,
-                        "analysis": analysis
-                    })
-                    progress_bar.progress((i + 1) / len(uploaded_files))
+                    try:
+                        query = file.getvalue().decode()
+                        st.markdown(f"### Query from {file.name}")
+                        formatted_query = format_sql(query)
+                        st.code(formatted_query, language="sql")
+                        
+                        analysis = analyzer.analyze_query(formatted_query)
+                        results.append({
+                            "filename": file.name,
+                            "analysis": analysis
+                        })
+                        progress_bar.progress((i + 1) / len(uploaded_files))
+                        logging.info(f"Analyzed file {i+1}/{len(uploaded_files)}: {file.name}")
+                    except Exception as e:
+                        logging.error(f"Failed to analyze {file.name}: {str(e)}")
+                        st.error(f"Failed to analyze {file.name}: {str(e)}")
                 
                 st.session_state.manual_queries = results
+                logging.info("Batch analysis completed")
     
     # Display analysis results
     if st.session_state.analysis_results:
@@ -391,6 +428,7 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
             st.code(formatted_query, language="sql")
             if st.button("Copy Optimized Query"):
                 st.session_state.clipboard = formatted_query
+                logging.debug("Optimized query copied to clipboard")
                 st.success("Query copied to clipboard!")
     
     # Display batch analysis results
@@ -411,7 +449,8 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
                 
                 if result['analysis'].optimized_query:
                     st.success("Optimized Query:")
-                    st.code(result['analysis'].optimized_query, language="sql")
+                    st.code(format_sql(result['analysis'].optimized_query), language="sql")
+                    logging.debug(f"Displayed results for {result['filename']}")
 
 
 def render_advanced_optimization_view(analyzer: Optional[QueryAnalyzer]):
