@@ -8,6 +8,7 @@ from datetime import datetime
 import streamlit as st
 from dotenv import load_dotenv
 import sqlparse
+import difflib
 
 from snowflake_optimizer.data_collector import QueryMetricsCollector
 from snowflake_optimizer.query_analyzer import QueryAnalyzer, SchemaInfo
@@ -121,6 +122,91 @@ def initialize_connections() -> tuple[Optional[QueryMetricsCollector], Optional[
 
     return collector, analyzer
 
+
+def create_query_diff(original: str, optimized: str) -> str:
+    """Create a diff view between original and optimized queries.
+    
+    Args:
+        original: Original SQL query
+        optimized: Optimized SQL query
+        
+    Returns:
+        HTML-formatted diff string
+    """
+    logging.debug("Creating diff between original and optimized queries")
+    
+    # Format both queries
+    original_formatted = format_sql(original).splitlines()
+    optimized_formatted = format_sql(optimized).splitlines()
+    
+    # Create diff
+    diff = difflib.HtmlDiff(wrapcolumn=80)
+    diff_html = diff.make_file(
+        original_formatted,
+        optimized_formatted,
+        fromdesc="Original Query",
+        todesc="Optimized Query",
+        context=True
+    )
+    
+    logging.debug("Query diff created successfully")
+    return diff_html
+
+def display_query_comparison(original: str, optimized: str):
+    """Display side-by-side comparison of original and optimized queries.
+    
+    Args:
+        original: Original SQL query
+        optimized: Optimized SQL query
+    """
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### Original Query")
+        st.code(format_sql(original), language="sql")
+        
+    with col2:
+        st.markdown("### Optimized Query")
+        st.code(format_sql(optimized), language="sql")
+    
+    # Show diff view in expander
+    with st.expander("View Detailed Changes"):
+        diff_html = create_query_diff(original, optimized)
+        st.markdown("""
+        <style>
+            .diff-view {
+                font-family: monospace;
+                white-space: pre;
+                background-color: #f0f2f6;
+                padding: 10px;
+                border-radius: 5px;
+                max-height: 500px;
+                overflow: auto;
+            }
+            .diff-view table {
+                width: 100%;
+                border-collapse: collapse;
+            }
+            .diff-view td {
+                padding: 2px 5px;
+            }
+            .diff-view .diff_add {
+                background-color: #e6ffe6;
+                color: #006600;
+            }
+            .diff-view .diff_sub {
+                background-color: #ffe6e6;
+                color: #cc0000;
+            }
+            .diff-view .diff_chg {
+                background-color: #fff5cc;
+                color: #996600;
+            }
+        </style>
+        <div class="diff-view">
+        """, unsafe_allow_html=True)
+        st.markdown(diff_html, unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 def render_query_history_view(collector: Optional[QueryMetricsCollector], analyzer: Optional[QueryAnalyzer]):
     """Render the query history analysis view.
@@ -425,11 +511,13 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
         
         # Display optimized query
         if st.session_state.analysis_results.optimized_query:
-            st.success("Optimized Query:")
-            formatted_query = format_sql(st.session_state.analysis_results.optimized_query)
-            st.code(formatted_query, language="sql")
+            st.success("Query Optimization Results")
+            display_query_comparison(
+                query,
+                st.session_state.analysis_results.optimized_query
+            )
             if st.button("Copy Optimized Query"):
-                st.session_state.clipboard = formatted_query
+                st.session_state.clipboard = format_sql(st.session_state.analysis_results.optimized_query)
                 logging.debug("Optimized query copied to clipboard")
                 st.success("Query copied to clipboard!")
     
@@ -596,11 +684,13 @@ def render_advanced_optimization_view(analyzer: Optional[QueryAnalyzer]):
                 
                 # Optimized Query
                 if analysis_results.optimized_query:
-                    with st.expander("Optimized Query", expanded=True):
-                        formatted_query = format_sql(analysis_results.optimized_query)
-                        st.code(formatted_query, language="sql")
-                        if st.button("Copy to Clipboard"):
-                            st.session_state.clipboard = formatted_query
+                    with st.expander("Query Optimization Results", expanded=True):
+                        display_query_comparison(
+                            query,
+                            analysis_results.optimized_query
+                        )
+                        if st.button("Copy Optimized Query"):
+                            st.session_state.clipboard = format_sql(analysis_results.optimized_query)
                             st.success("Query copied to clipboard!")
 
 
