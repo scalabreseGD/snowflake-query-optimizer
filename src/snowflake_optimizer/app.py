@@ -3,12 +3,45 @@
 import os
 from typing import Optional, List, Dict
 import json
+import logging
+from datetime import datetime
 import streamlit as st
 from dotenv import load_dotenv
 import sqlparse
 
 from snowflake_optimizer.data_collector import QueryMetricsCollector
 from snowflake_optimizer.query_analyzer import QueryAnalyzer, SchemaInfo
+
+# Configure logging
+def setup_logging():
+    """Configure logging with custom format and handlers."""
+    log_dir = "logs"
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+    
+    log_file = os.path.join(log_dir, f"snowflake_optimizer_{datetime.now().strftime('%Y%m%d')}.log")
+    
+    # Create formatters and handlers
+    file_formatter = logging.Formatter(
+        '%(asctime)s | %(levelname)-8s | %(filename)s:%(lineno)d | %(funcName)s | %(message)s'
+    )
+    
+    # File handler for detailed logging
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(file_formatter)
+    file_handler.setLevel(logging.DEBUG)
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(file_handler)
+    
+    # Log initial application startup
+    logging.info("Snowflake Query Optimizer application started")
+    logging.debug(f"Log file created at: {log_file}")
+
+# Set up logging
+setup_logging()
 
 # Load environment variables
 load_dotenv()
@@ -34,15 +67,19 @@ def format_sql(query: str) -> str:
     Returns:
         Formatted SQL query
     """
+    logging.debug(f"Formatting SQL query of length: {len(query)}")
     try:
-        return sqlparse.format(
+        formatted = sqlparse.format(
             query,
             reindent=True,
             keyword_case='upper',
             identifier_case='lower',
             indent_width=4
         )
-    except:
+        logging.debug("SQL formatting successful")
+        return formatted
+    except Exception as e:
+        logging.error(f"SQL formatting failed: {str(e)}")
         return query
 
 def initialize_connections() -> tuple[Optional[QueryMetricsCollector], Optional[QueryAnalyzer]]:
@@ -51,24 +88,32 @@ def initialize_connections() -> tuple[Optional[QueryMetricsCollector], Optional[
     Returns:
         Tuple of QueryMetricsCollector and QueryAnalyzer instances
     """
+    logging.info("Initializing service connections")
+    
     try:
+        logging.debug("Attempting to connect to Snowflake")
         collector = QueryMetricsCollector(
             account=st.secrets["SNOWFLAKE_ACCOUNT"],
             user=st.secrets["SNOWFLAKE_USER"],
-            password=st.secrets["SNOWFLAKE_PASSWORD"],
+            password="*****",  # Masked for security
             warehouse=st.secrets["SNOWFLAKE_WAREHOUSE"],
             database=st.secrets.get("SNOWFLAKE_DATABASE"),
             schema=st.secrets.get("SNOWFLAKE_SCHEMA"),
         )
+        logging.info("Successfully connected to Snowflake")
     except Exception as e:
+        logging.error(f"Failed to connect to Snowflake: {str(e)}")
         st.error(f"Failed to connect to Snowflake: {str(e)}")
         collector = None
 
     try:
+        logging.debug("Initializing Query Analyzer")
         analyzer = QueryAnalyzer(
-            anthropic_api_key=st.secrets["ANTHROPIC_API_KEY"]
+            anthropic_api_key="*****"  # Masked for security
         )
+        logging.info("Successfully initialized Query Analyzer")
     except Exception as e:
+        logging.error(f"Failed to initialize Query Analyzer: {str(e)}")
         st.error(f"Failed to initialize Query Analyzer: {str(e)}")
         analyzer = None
 
@@ -82,6 +127,7 @@ def render_query_history_view(collector: Optional[QueryMetricsCollector], analyz
         collector: QueryMetricsCollector instance
         analyzer: QueryAnalyzer instance
     """
+    logging.info("Rendering query history view")
     st.header("Query History Analysis")
     
     # Sidebar configuration
@@ -107,16 +153,25 @@ def render_query_history_view(collector: Optional[QueryMetricsCollector], analyz
             value=100,
             help="Maximum number of queries to analyze"
         )
+        
+        logging.debug(f"Query history parameters - days: {days}, min_execution_time: {min_execution_time}, limit: {limit}")
 
         if st.button("Fetch Queries"):
             if collector:
+                logging.info("Fetching query history from Snowflake")
                 with st.spinner("Fetching query history..."):
-                    st.session_state.query_history = collector.get_expensive_queries(
-                        days=days,
-                        min_execution_time=min_execution_time,
-                        limit=limit
-                    )
+                    try:
+                        st.session_state.query_history = collector.get_expensive_queries(
+                            days=days,
+                            min_execution_time=min_execution_time,
+                            limit=limit
+                        )
+                        logging.info(f"Successfully fetched {len(st.session_state.query_history)} queries")
+                    except Exception as e:
+                        logging.error(f"Failed to fetch query history: {str(e)}")
+                        st.error(f"Failed to fetch queries: {str(e)}")
             else:
+                logging.error("Cannot fetch queries - Snowflake connection not available")
                 st.error("Snowflake connection not available")
 
     # Main content area
@@ -138,12 +193,14 @@ def render_query_history_view(collector: Optional[QueryMetricsCollector], analyz
                 "Select a query to analyze",
                 st.session_state.query_history["QUERY_ID"].tolist()
             )
-
+            
             if selected_query_id:
+                logging.debug(f"Selected query ID: {selected_query_id}")
                 query_text = st.session_state.query_history[
                     st.session_state.query_history["QUERY_ID"] == selected_query_id
                 ]["QUERY_TEXT"].iloc[0]
                 st.session_state.selected_query = format_sql(query_text)
+                logging.info(f"Query loaded for analysis - ID: {selected_query_id}")
 
     with col2:
         if st.session_state.selected_query:
@@ -152,13 +209,23 @@ def render_query_history_view(collector: Optional[QueryMetricsCollector], analyz
 
             if st.button("Analyze Query"):
                 if analyzer:
+                    logging.info("Starting query analysis")
                     with st.spinner("Analyzing query..."):
-                        st.session_state.analysis_results = analyzer.analyze_query(
-                            st.session_state.selected_query
-                        )
+                        try:
+                            st.session_state.analysis_results = analyzer.analyze_query(
+                                st.session_state.selected_query
+                            )
+                            logging.info("Query analysis completed successfully")
+                        except Exception as e:
+                            logging.error(f"Query analysis failed: {str(e)}")
+                            st.error(f"Analysis failed: {str(e)}")
 
         if st.session_state.analysis_results:
             st.subheader("Analysis Results")
+            
+            # Log analysis results
+            logging.debug(f"Analysis results - Category: {st.session_state.analysis_results.category}, "
+                         f"Complexity: {st.session_state.analysis_results.complexity_score:.2f}")
             
             # Display query category and complexity
             st.info(f"Query Category: {st.session_state.analysis_results.category}")
@@ -167,23 +234,27 @@ def render_query_history_view(collector: Optional[QueryMetricsCollector], analyz
             
             # Display antipatterns
             if st.session_state.analysis_results.antipatterns:
+                logging.debug(f"Antipatterns detected: {len(st.session_state.analysis_results.antipatterns)}")
                 st.warning("Antipatterns Detected:")
                 for pattern in st.session_state.analysis_results.antipatterns:
                     st.write(f"- {pattern}")
 
             # Display suggestions
             if st.session_state.analysis_results.suggestions:
+                logging.debug(f"Optimization suggestions: {len(st.session_state.analysis_results.suggestions)}")
                 st.info("Optimization Suggestions:")
                 for suggestion in st.session_state.analysis_results.suggestions:
                     st.write(f"- {suggestion}")
 
             # Display optimized query
             if st.session_state.analysis_results.optimized_query:
+                logging.info("Optimized query generated")
                 st.success("Optimized Query:")
                 formatted_query = format_sql(st.session_state.analysis_results.optimized_query)
                 st.code(formatted_query, language="sql")
                 if st.button("Copy Optimized Query"):
                     st.session_state.clipboard = formatted_query
+                    logging.debug("Optimized query copied to clipboard")
                     st.success("Query copied to clipboard!")
 
 
@@ -494,6 +565,7 @@ def render_advanced_optimization_view(analyzer: Optional[QueryAnalyzer]):
 
 def main():
     """Main function to run the Streamlit application."""
+    logging.info("Starting main application")
     st.title("Snowflake Query Optimizer")
     st.write("Analyze and optimize your Snowflake SQL queries")
 
@@ -505,6 +577,7 @@ def main():
         "Select Mode",
         ["Query History Analysis", "Manual Analysis", "Advanced Optimization"]
     )
+    logging.info(f"Selected mode: {mode}")
 
     if mode == "Query History Analysis":
         render_query_history_view(collector, analyzer)
@@ -512,6 +585,8 @@ def main():
         render_manual_analysis_view(analyzer)
     else:
         render_advanced_optimization_view(analyzer)
+
+    logging.debug("Main application loop completed")
 
 
 if __name__ == "__main__":
