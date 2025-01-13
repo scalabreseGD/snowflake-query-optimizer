@@ -151,17 +151,68 @@ def create_query_diff(original: str, optimized: str) -> str:
         if line.startswith('---') or line.startswith('+++'):
             continue
         if line.startswith('-'):
-            diff_lines.append(f'<div class="diff-remove">{line[1:]}</div>')
+            # Highlight SQL keywords in removed lines
+            highlighted = highlight_sql(line[1:])
+            diff_lines.append(f'<div class="diff-remove"><span class="line-number"></span>{highlighted}</div>')
         elif line.startswith('+'):
-            diff_lines.append(f'<div class="diff-add">{line[1:]}</div>')
+            # Highlight SQL keywords in added lines
+            highlighted = highlight_sql(line[1:])
+            diff_lines.append(f'<div class="diff-add"><span class="line-number"></span>{highlighted}</div>')
         elif line.startswith('@@'):
             diff_lines.append(f'<div class="diff-info">{line}</div>')
         else:
-            diff_lines.append(f'<div class="diff-unchanged">{line}</div>')
+            # Highlight SQL keywords in unchanged lines
+            highlighted = highlight_sql(line)
+            diff_lines.append(f'<div class="diff-unchanged"><span class="line-number"></span>{highlighted}</div>')
     
     diff_html = '\n'.join(diff_lines)
     logging.debug("Query diff created successfully")
     return diff_html
+
+def highlight_sql(text: str) -> str:
+    """Highlight SQL keywords in text.
+    
+    Args:
+        text: SQL text to highlight
+        
+    Returns:
+        HTML-formatted text with highlighted keywords
+    """
+    # Common SQL keywords to highlight
+    keywords = {
+        'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'JOIN',
+        'LEFT', 'RIGHT', 'INNER', 'OUTER', 'ON', 'AND', 'OR', 'IN', 'NOT',
+        'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER', 'DROP', 'TABLE',
+        'INDEX', 'VIEW', 'FUNCTION', 'PROCEDURE', 'TRIGGER', 'AS', 'CASE',
+        'WHEN', 'THEN', 'ELSE', 'END', 'UNION', 'ALL', 'DISTINCT', 'TOP',
+        'LIMIT', 'OFFSET', 'WITH', 'VALUES', 'INTO', 'NULL', 'IS', 'ASC',
+        'DESC', 'BETWEEN', 'LIKE', 'EXISTS'
+    }
+    
+    # Split into words while preserving whitespace and punctuation
+    parts = []
+    current_word = []
+    for char in text:
+        if char.isalnum() or char == '_':
+            current_word.append(char)
+        else:
+            if current_word:
+                word = ''.join(current_word)
+                if word.upper() in keywords:
+                    parts.append(f'<span class="keyword">{word}</span>')
+                else:
+                    parts.append(word)
+                current_word = []
+            parts.append(char)
+    
+    if current_word:
+        word = ''.join(current_word)
+        if word.upper() in keywords:
+            parts.append(f'<span class="keyword">{word}</span>')
+        else:
+            parts.append(word)
+    
+    return ''.join(parts)
 
 def display_query_comparison(original: str, optimized: str):
     """Display side-by-side comparison of original and optimized queries.
@@ -185,61 +236,78 @@ def display_query_comparison(original: str, optimized: str):
         st.markdown("""
         <style>
             .diff-view {
-                font-family: 'JetBrains Mono', 'Courier New', monospace;
-                font-size: 14px;
-                line-height: 1.5;
-                background-color: #f8f9fa;
-                padding: 16px;
-                border-radius: 8px;
-                border: 1px solid #e9ecef;
+                font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+                font-size: 13px;
+                line-height: 1.4;
+                background-color: #1e1e1e;
+                color: #d4d4d4;
+                padding: 8px 0;
+                border-radius: 6px;
                 overflow-x: auto;
             }
+            .diff-view > div {
+                padding: 0 8px 0 0;
+                display: flex;
+                white-space: pre;
+            }
+            .line-number {
+                width: 40px;
+                padding: 0 8px;
+                color: #858585;
+                text-align: right;
+                user-select: none;
+                flex-shrink: 0;
+            }
             .diff-remove {
-                background-color: #ffeef0;
-                color: #b31d28;
-                padding: 2px 4px;
-                margin: 2px 0;
-                border-radius: 4px;
+                background-color: rgba(255, 0, 0, 0.15);
                 position: relative;
             }
             .diff-remove::before {
-                content: "−";
-                color: #b31d28;
-                margin-right: 8px;
-                font-weight: bold;
+                content: "-";
+                color: #ff4444;
+                position: absolute;
+                left: 4px;
+                width: 8px;
             }
             .diff-add {
-                background-color: #e6ffec;
-                color: #22863a;
-                padding: 2px 4px;
-                margin: 2px 0;
-                border-radius: 4px;
+                background-color: rgba(0, 255, 0, 0.15);
                 position: relative;
             }
             .diff-add::before {
                 content: "+";
-                color: #22863a;
-                margin-right: 8px;
-                font-weight: bold;
+                color: #4caf50;
+                position: absolute;
+                left: 4px;
+                width: 8px;
             }
             .diff-unchanged {
-                color: #24292e;
-                padding: 2px 4px;
-                margin: 2px 0;
+                position: relative;
             }
             .diff-unchanged::before {
                 content: " ";
-                margin-right: 8px;
-                opacity: 0.3;
+                position: absolute;
+                left: 4px;
+                width: 8px;
             }
             .diff-info {
-                color: #6a737d;
-                padding: 2px 4px;
-                margin: 4px 0;
+                color: #858585;
                 font-style: italic;
-                border-top: 1px solid #e1e4e8;
-                border-bottom: 1px solid #e1e4e8;
+                padding: 4px 0;
+                margin: 4px 0;
+                border-top: 1px solid #333;
+                border-bottom: 1px solid #333;
+                user-select: none;
             }
+            .keyword {
+                color: #569cd6;
+                font-weight: 500;
+            }
+            /* Syntax highlighting colors */
+            .string { color: #ce9178; }
+            .number { color: #b5cea8; }
+            .operator { color: #d4d4d4; }
+            .comment { color: #6a9955; font-style: italic; }
+            .function { color: #dcdcaa; }
         </style>
         <div class="diff-view">
         """, unsafe_allow_html=True)
@@ -248,12 +316,31 @@ def display_query_comparison(original: str, optimized: str):
         st.markdown(diff_html, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
         
-        # Add a legend
+        # Add a legend with IDE-style design
         st.markdown("""
-        <div style="margin-top: 16px; font-size: 14px;">
-            <span style="color: #22863a;">●</span> Added &nbsp;&nbsp;
-            <span style="color: #b31d28;">●</span> Removed &nbsp;&nbsp;
-            <span style="color: #24292e;">●</span> Unchanged
+        <div style="
+            margin-top: 16px;
+            font-family: system-ui, -apple-system, sans-serif;
+            font-size: 12px;
+            color: #d4d4d4;
+            background-color: #252526;
+            padding: 8px 12px;
+            border-radius: 4px;
+            display: flex;
+            gap: 16px;
+        ">
+            <div>
+                <span style="color: #4caf50;">●</span>
+                <span style="margin-left: 4px;">Added</span>
+            </div>
+            <div>
+                <span style="color: #ff4444;">●</span>
+                <span style="margin-left: 4px;">Removed</span>
+            </div>
+            <div>
+                <span style="color: #569cd6;">●</span>
+                <span style="margin-left: 4px;">SQL Keywords</span>
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
