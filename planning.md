@@ -1,80 +1,98 @@
-# Application Plan and Structure (Streamlit-Based)
+# Snowflake Query Optimizer - Planning Document
 
-Below is a high-level plan for how you might structure a **Streamlit** application that ingests SQL queries (and associated performance metrics), identifies common antipatterns, and suggests improvements/fixes. This includes “agentic” improvements such as recommending new partitions, materialized views, etc.
+## Application Modes
 
----
+### 1. Query History Analysis Mode
+- Fetch and analyze historical queries from Snowflake
+- Filter by execution time, date range, and query count
+- Display performance metrics and optimization suggestions
+- Show optimized query versions
 
-## 1. Overall Flow
+### 2. Manual Query Analysis Mode
+- Direct SQL input
+- File upload support
+- Batch analysis capabilities
+- Basic optimization suggestions
 
-1. **Analysis Prep**  
-   1. **Collect Performance Metrics**  
-      - Pull data from your data warehouse (Snowflake, Redshift, BigQuery, etc.)  
-      - Include execution time, cost, frequency, and other relevant metrics.  
-   2. **Filter by Cost and Frequency**  
-      - A Python step filters out queries below certain thresholds (configurable).  
-      - Thresholds could be set via a config file, environment variables, or Streamlit widgets.  
-   3. **Categorize Query Patterns (LLM)**  
-      - Use an LLM to identify typical antipatterns or suboptimal patterns.  
-      - Potential categories include: “Suboptimal Join,” “Missing WHERE clause,” “Excessive DISTINCT,” “Non-SARGable Condition,” etc.  
-   4. **Assemble a Candidate Query Set**  
-      - Gather the queries worth analyzing (most costly, frequent, or flagged) for further inspection.
+### 3. Advanced Snowflake Optimization Mode ✅
+- Specialized Snowflake-specific optimizations:
+  - Clustering key analysis and recommendations
+  - Materialized view suggestions
+  - Search optimization service recommendations
+  - Query result caching strategies
+  - Partitioning advice
+- Detailed schema information input
+- Advanced configuration options
+- Organized results by optimization category
 
-2. **Baseline Improvements**  
-   1. **Identify and Repair Common Antipatterns (LLM)**  
-      - Prompt structure might look like:  
-        - `(1) Antipattern + SQL statement`  
-        - `(2) Instructions: "Please fix and optimize this query."`  
-        - `(3) Reasoning or “Chain of Thought” (optional)`  
-        - `(4) Examples of Fixes`  
-      - The LLM returns a candidate fix.  
-   2. **SQL Validator**  
-      - A validation step (Python library or data warehouse “EXPLAIN” statement) checks if proposed SQL is valid.  
-      - If invalid, feed it back into the LLM or mark for manual review.
+## Features
 
-3. **Further (Agentic) Improvements**  
-   - Once table metadata is available (table size, cardinalities, existing cluster/partition keys), the LLM can propose:  
-     1. **Cluster Key Suggestions**  
-     2. **New Partition Suggestions**  
-     3. **Materialized Views**  
-   - Provide rationale: “This table is large and frequently joined on `customer_id`; consider clustering by `customer_id`,” etc.
+### Core Features
+- [x] Query syntax validation
+- [x] Antipattern detection
+- [x] Query categorization
+- [x] Basic optimization suggestions
+- [x] Query complexity scoring
+- [x] LLM-powered analysis
+- [x] Advanced Snowflake optimizations
 
-4. **Deployment Options**  
-   - **Option 1**: Run as a batch job (e.g. daily/weekly).  
-   - **Option 2**: Build triggers that call your system whenever expensive/long-running jobs are detected.
+### Snowflake Integration
+- [x] Query history retrieval
+- [x] Performance metrics collection
+- [ ] Real-time query plan analysis
+- [ ] Cost estimation
+- [ ] Resource utilization metrics
 
-5. **Manual Query Analysis Mode**
-   1. **Query Input**
-      - Direct SQL query input through text area
-      - File upload support for SQL files
-      - Support for multiple query analysis in batch
-   2. **Schema Information**
-      - Optional table schema input
-      - Table statistics and metadata input
-      - Existing indexes and materialized views
-   3. **Analysis Features**
-      - Syntax validation and formatting
-      - Query complexity scoring
-      - Cost estimation (if schema provided)
-      - Antipattern detection
-      - Category classification:
-        - Data Manipulation
-        - Reporting
-        - ETL
-        - Analytics
-        - etc.
-   4. **Optimization Suggestions**
-      - Query rewrite suggestions
-      - Index recommendations
-      - Materialization strategies
-      - Partitioning advice
-   5. **Batch Processing**
-      - Upload multiple queries
-      - Bulk analysis and optimization
-      - Export results to CSV/Excel
-   6. **History and Versioning**
-      - Save analyzed queries
-      - Track optimization history
-      - Compare different versions
-      - Export optimization reports
+### User Interface
+- [x] Multiple analysis modes
+- [x] Interactive query input
+- [x] File upload support
+- [x] Batch analysis
+- [x] Advanced configuration options
+- [x] Organized results display
+- [ ] Query comparison view
+- [ ] Performance visualization
+
+### Advanced Features
+- [x] Clustering key analysis
+- [x] Materialized view suggestions
+- [x] Search optimization
+- [x] Query caching strategies
+- [ ] Dynamic scaling recommendations
+- [ ] Data lifecycle management
+- [ ] Cost-benefit analysis for suggestions
+
+## Technical Implementation
+
+### Backend
+- [x] Query analyzer module
+- [x] Snowflake connector
+- [x] LLM integration
+- [ ] Query plan parser
+- [ ] Cost estimator
+
+### Frontend
+- [x] Streamlit UI
+- [x] Multiple view modes
+- [x] Schema input forms
+- [x] Results organization
+- [ ] Interactive visualizations
+- [ ] Query editor with syntax highlighting
+
+### Testing
+- [x] Basic unit tests
+- [ ] Integration tests
+- [ ] Performance benchmarks
+- [ ] UI testing
+
+## Future Enhancements
+1. Real-time query plan visualization
+2. Cost-benefit analysis for optimization suggestions
+3. Historical performance tracking
+4. Custom optimization rule creation
+5. Integration with other data warehouses
+6. Automated optimization application
+7. Team collaboration features
+8. Query version control
 
 

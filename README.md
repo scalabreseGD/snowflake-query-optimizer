@@ -4,34 +4,44 @@ An AI-powered tool for analyzing and optimizing Snowflake SQL queries. This appl
 
 ## Features
 
-- **Query Analysis**
-  - Syntax validation and complexity scoring
-  - Antipattern detection
-  - Query categorization (Data Manipulation, Reporting, ETL, Analytics)
-  - Performance optimization suggestions
-  
-- **Query Optimization**
-  - Automated query rewriting for better performance
-  - Join optimization
-  - Filter improvements
-  - Projection optimization
-  
-- **Schema Analysis**
-  - Index suggestions
-  - Materialization recommendations
-  - Partitioning advice
-  
-- **Interactive UI**
-  - Manual query input
-  - Query history analysis
-  - Real-time optimization feedback
-  - Performance metrics visualization
+### Query Analysis Modes
+
+1. **Query History Analysis**
+   - Analyze historical queries from Snowflake
+   - Filter by execution time and date range
+   - View performance metrics
+   - Get optimization suggestions
+
+2. **Manual Query Analysis**
+   - Direct query input
+   - File upload support
+   - Batch analysis capabilities
+   - Basic optimization suggestions
+
+3. **Advanced Snowflake Optimization**
+   - Specialized Snowflake-specific optimizations:
+     - Clustering key analysis
+     - Materialized view suggestions
+     - Search optimization recommendations
+     - Query result caching strategies
+     - Partitioning advice
+   - Detailed schema information input
+   - Advanced configuration options
+   - Organized results by category
+
+### Core Features
+- Query syntax validation and complexity scoring
+- Antipattern detection
+- Query categorization (Data Manipulation, Reporting, ETL, Analytics)
+- Performance optimization suggestions
+- LLM-powered analysis
+- Advanced Snowflake-specific optimizations
 
 ## Installation
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/snowflake-query-optimizer.git
+   git clone https://github.com/nareshshah139/snowflake-query-optimizer.git
    cd snowflake-query-optimizer
    ```
 
@@ -70,9 +80,31 @@ An AI-powered tool for analyzing and optimizing Snowflake SQL queries. This appl
 
 2. Access the application at `http://localhost:8501`
 
-3. Use the application in two modes:
-   - **Query History Analysis**: Analyzes your Snowflake query history to identify optimization opportunities
-   - **Manual Query Analysis**: Input specific queries for analysis and optimization
+3. Choose an analysis mode:
+   - **Query History Analysis**: Analyzes your Snowflake query history
+   - **Manual Query Analysis**: Input specific queries for basic analysis
+   - **Advanced Optimization**: Deep analysis with Snowflake-specific optimizations
+
+### Advanced Optimization Mode
+
+1. Enter your SQL query
+2. Configure optimization options:
+   - Clustering key analysis
+   - Materialization analysis
+   - Search optimization
+   - Caching strategy
+   - Partitioning analysis
+
+3. Add schema information (optional):
+   - Table details
+   - Column definitions
+   - Partitioning configuration
+
+4. View organized results:
+   - Query information
+   - Antipatterns
+   - Optimization recommendations by category
+   - Optimized query with copy functionality
 
 ## Development
 
