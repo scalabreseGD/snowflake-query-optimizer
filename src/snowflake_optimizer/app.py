@@ -95,7 +95,7 @@ def initialize_connections() -> tuple[Optional[QueryMetricsCollector], Optional[
         collector = QueryMetricsCollector(
             account=st.secrets["SNOWFLAKE_ACCOUNT"],
             user=st.secrets["SNOWFLAKE_USER"],
-            password="*****",  # Masked for security
+            password=st.secrets["SNOWFLAKE_PASSWORD"],
             warehouse=st.secrets["SNOWFLAKE_WAREHOUSE"],
             database=st.secrets.get("SNOWFLAKE_DATABASE"),
             schema=st.secrets.get("SNOWFLAKE_SCHEMA"),
@@ -108,8 +108,10 @@ def initialize_connections() -> tuple[Optional[QueryMetricsCollector], Optional[
 
     try:
         logging.debug("Initializing Query Analyzer")
+        api_key = st.secrets["ANTHROPIC_API_KEY"]
+        logging.debug(f"API key length: {len(api_key)}")
         analyzer = QueryAnalyzer(
-            anthropic_api_key="*****"  # Masked for security
+            anthropic_api_key=api_key
         )
         logging.info("Successfully initialized Query Analyzer")
     except Exception as e:
