@@ -139,16 +139,27 @@ def create_query_diff(original: str, optimized: str) -> str:
     original_formatted = format_sql(original).splitlines()
     optimized_formatted = format_sql(optimized).splitlines()
     
-    # Create diff
-    diff = difflib.HtmlDiff(wrapcolumn=80)
-    diff_html = diff.make_file(
+    # Create unified diff
+    diff_lines = []
+    for line in difflib.unified_diff(
         original_formatted,
         optimized_formatted,
-        fromdesc="Original Query",
-        todesc="Optimized Query",
-        context=True
-    )
+        fromfile='Original',
+        tofile='Optimized',
+        lineterm='',
+    ):
+        if line.startswith('---') or line.startswith('+++'):
+            continue
+        if line.startswith('-'):
+            diff_lines.append(f'<div class="diff-remove">{line[1:]}</div>')
+        elif line.startswith('+'):
+            diff_lines.append(f'<div class="diff-add">{line[1:]}</div>')
+        elif line.startswith('@@'):
+            diff_lines.append(f'<div class="diff-info">{line}</div>')
+        else:
+            diff_lines.append(f'<div class="diff-unchanged">{line}</div>')
     
+    diff_html = '\n'.join(diff_lines)
     logging.debug("Query diff created successfully")
     return diff_html
 
@@ -170,43 +181,81 @@ def display_query_comparison(original: str, optimized: str):
         st.code(format_sql(optimized), language="sql")
     
     # Show diff view in expander
-    with st.expander("View Detailed Changes"):
-        diff_html = create_query_diff(original, optimized)
+    with st.expander("View Changes"):
         st.markdown("""
         <style>
             .diff-view {
-                font-family: monospace;
-                white-space: pre;
-                background-color: #f0f2f6;
-                padding: 10px;
-                border-radius: 5px;
-                max-height: 500px;
-                overflow: auto;
+                font-family: 'JetBrains Mono', 'Courier New', monospace;
+                font-size: 14px;
+                line-height: 1.5;
+                background-color: #f8f9fa;
+                padding: 16px;
+                border-radius: 8px;
+                border: 1px solid #e9ecef;
+                overflow-x: auto;
             }
-            .diff-view table {
-                width: 100%;
-                border-collapse: collapse;
+            .diff-remove {
+                background-color: #ffeef0;
+                color: #b31d28;
+                padding: 2px 4px;
+                margin: 2px 0;
+                border-radius: 4px;
+                position: relative;
             }
-            .diff-view td {
-                padding: 2px 5px;
+            .diff-remove::before {
+                content: "−";
+                color: #b31d28;
+                margin-right: 8px;
+                font-weight: bold;
             }
-            .diff-view .diff_add {
-                background-color: #e6ffe6;
-                color: #006600;
+            .diff-add {
+                background-color: #e6ffec;
+                color: #22863a;
+                padding: 2px 4px;
+                margin: 2px 0;
+                border-radius: 4px;
+                position: relative;
             }
-            .diff-view .diff_sub {
-                background-color: #ffe6e6;
-                color: #cc0000;
+            .diff-add::before {
+                content: "+";
+                color: #22863a;
+                margin-right: 8px;
+                font-weight: bold;
             }
-            .diff-view .diff_chg {
-                background-color: #fff5cc;
-                color: #996600;
+            .diff-unchanged {
+                color: #24292e;
+                padding: 2px 4px;
+                margin: 2px 0;
+            }
+            .diff-unchanged::before {
+                content: " ";
+                margin-right: 8px;
+                opacity: 0.3;
+            }
+            .diff-info {
+                color: #6a737d;
+                padding: 2px 4px;
+                margin: 4px 0;
+                font-style: italic;
+                border-top: 1px solid #e1e4e8;
+                border-bottom: 1px solid #e1e4e8;
             }
         </style>
         <div class="diff-view">
         """, unsafe_allow_html=True)
+        
+        diff_html = create_query_diff(original, optimized)
         st.markdown(diff_html, unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
+        
+        # Add a legend
+        st.markdown("""
+        <div style="margin-top: 16px; font-size: 14px;">
+            <span style="color: #22863a;">●</span> Added &nbsp;&nbsp;
+            <span style="color: #b31d28;">●</span> Removed &nbsp;&nbsp;
+            <span style="color: #24292e;">●</span> Unchanged
+        </div>
+        """, unsafe_allow_html=True)
 
 def render_query_history_view(collector: Optional[QueryMetricsCollector], analyzer: Optional[QueryAnalyzer]):
     """Render the query history analysis view.
