@@ -215,134 +215,46 @@ def highlight_sql(text: str) -> str:
     return ''.join(parts)
 
 def display_query_comparison(original: str, optimized: str):
-    """Display side-by-side comparison of original and optimized queries.
+    """Display a side-by-side comparison of original and optimized queries."""
+    st.markdown("### Query Comparison")
     
-    Args:
-        original: Original SQL query
-        optimized: Optimized SQL query
-    """
+    # Create columns for side-by-side view
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### Original Query")
+        st.markdown("**Original Query**")
         st.code(format_sql(original), language="sql")
         
     with col2:
-        st.markdown("### Optimized Query")
+        st.markdown("**Optimized Query**")
         st.code(format_sql(optimized), language="sql")
     
-    # Show diff view in expander
-    with st.expander("View Changes"):
-        st.markdown("""
-        <style>
-            .diff-view {
-                font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
-                font-size: 13px;
-                line-height: 1.4;
-                background-color: #1e1e1e;
-                color: #d4d4d4;
-                padding: 8px 0;
-                border-radius: 6px;
-                overflow-x: auto;
-            }
-            .diff-view > div {
-                padding: 0 8px 0 0;
-                display: flex;
-                white-space: pre;
-            }
-            .line-number {
-                width: 40px;
-                padding: 0 8px;
-                color: #858585;
-                text-align: right;
-                user-select: none;
-                flex-shrink: 0;
-            }
-            .diff-remove {
-                background-color: rgba(255, 0, 0, 0.15);
-                position: relative;
-            }
-            .diff-remove::before {
-                content: "-";
-                color: #ff4444;
-                position: absolute;
-                left: 4px;
-                width: 8px;
-            }
-            .diff-add {
-                background-color: rgba(0, 255, 0, 0.15);
-                position: relative;
-            }
-            .diff-add::before {
-                content: "+";
-                color: #4caf50;
-                position: absolute;
-                left: 4px;
-                width: 8px;
-            }
-            .diff-unchanged {
-                position: relative;
-            }
-            .diff-unchanged::before {
-                content: " ";
-                position: absolute;
-                left: 4px;
-                width: 8px;
-            }
-            .diff-info {
-                color: #858585;
-                font-style: italic;
-                padding: 4px 0;
-                margin: 4px 0;
-                border-top: 1px solid #333;
-                border-bottom: 1px solid #333;
-                user-select: none;
-            }
-            .keyword {
-                color: #569cd6;
-                font-weight: 500;
-            }
-            /* Syntax highlighting colors */
-            .string { color: #ce9178; }
-            .number { color: #b5cea8; }
-            .operator { color: #d4d4d4; }
-            .comment { color: #6a9955; font-style: italic; }
-            .function { color: #dcdcaa; }
-        </style>
-        <div class="diff-view">
-        """, unsafe_allow_html=True)
-        
-        diff_html = create_query_diff(original, optimized)
-        st.markdown(diff_html, unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-        
-        # Add a legend with IDE-style design
-        st.markdown("""
-        <div style="
-            margin-top: 16px;
-            font-family: system-ui, -apple-system, sans-serif;
-            font-size: 12px;
-            color: #d4d4d4;
-            background-color: #252526;
-            padding: 8px 12px;
-            border-radius: 4px;
-            display: flex;
-            gap: 16px;
-        ">
-            <div>
-                <span style="color: #4caf50;">●</span>
-                <span style="margin-left: 4px;">Added</span>
-            </div>
-            <div>
-                <span style="color: #ff4444;">●</span>
-                <span style="margin-left: 4px;">Removed</span>
-            </div>
-            <div>
-                <span style="color: #569cd6;">●</span>
-                <span style="margin-left: 4px;">SQL Keywords</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    # Show diff below instead of in expander
+    st.markdown("### Changes")
+    st.markdown("""
+    <style>
+    .diff-legend {
+        display: flex;
+        gap: 20px;
+        margin-bottom: 10px;
+        font-family: monospace;
+    }
+    .diff-legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+    }
+    .diff-added { background-color: #2ea04326; }
+    .diff-removed { background-color: #f8514926; }
+    </style>
+    <div class="diff-legend">
+        <span><span style="color: #2ea043">+</span> Added</span>
+        <span><span style="color: #f85149">-</span> Removed</span>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    diff_html = create_query_diff(original, optimized)
+    st.markdown(diff_html, unsafe_allow_html=True)
 
 def render_query_history_view(collector: Optional[QueryMetricsCollector], analyzer: Optional[QueryAnalyzer]):
     """Render the query history analysis view.
@@ -679,155 +591,79 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
                     logging.debug(f"Displayed results for {result['filename']}")
 
 
-def render_advanced_optimization_view(analyzer: Optional[QueryAnalyzer]):
-    """Render the advanced Snowflake optimization view.
-
-    Args:
-        analyzer: QueryAnalyzer instance
-    """
-    st.header("Advanced Snowflake Optimization")
+def render_advanced_optimization_view(analyzer: QueryAnalyzer):
+    """Render the advanced optimization view."""
+    st.markdown("## Advanced Optimization Mode")
     
     # Input section
-    st.markdown("### Enter SQL Query")
-    query = st.text_area(
-        "SQL Query",
-        height=200,
-        help="Paste your SQL query here for advanced Snowflake-specific optimizations",
-        key="advanced_sql_input"
-    )
+    st.markdown("### Query Input")
+    query = st.text_area("Enter your SQL query", height=200, key="advanced_sql_input")
     
-    # Format button
-    if query and st.button("Format Query"):
-        formatted_query = format_sql(query)
-        st.session_state.advanced_sql_input = formatted_query
-        st.experimental_rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        schema_info = st.text_area("Table Schema Information (Optional)", 
+                                 placeholder="Enter table definitions, indexes, etc.",
+                                 height=150)
+    with col2:
+        partition_info = st.text_area("Partitioning Details (Optional)",
+                                   placeholder="Enter partitioning strategy details",
+                                   height=150)
     
-    # Display formatted query with syntax highlighting
-    if query:
-        st.markdown("### Formatted Query")
-        st.code(format_sql(query), language="sql")
+    # Analysis options
+    st.markdown("### Optimization Options")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        analyze_clustering = st.checkbox("Analyze Clustering Keys", value=True)
+        suggest_materialization = st.checkbox("Suggest Materialization", value=True)
+    with col2:
+        analyze_search = st.checkbox("Analyze Search Optimization", value=True)
+        suggest_caching = st.checkbox("Suggest Caching Strategy", value=True)
+    with col3:
+        analyze_partitioning = st.checkbox("Analyze Partitioning", value=True)
     
-    # Advanced configuration
-    with st.expander("Advanced Configuration"):
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            enable_clustering = st.checkbox("Analyze Clustering Keys", value=True)
-            enable_materialization = st.checkbox("Analyze Materialization", value=True)
-            enable_search = st.checkbox("Analyze Search Optimization", value=True)
-        
-        with col2:
-            enable_caching = st.checkbox("Analyze Caching Strategy", value=True)
-            enable_partitioning = st.checkbox("Analyze Partitioning", value=True)
-    
-    # Schema information
-    with st.expander("Table Schema Information"):
-        table_name = st.text_input("Table name")
-        row_count = st.number_input("Approximate row count", min_value=0)
-        size_bytes = st.number_input("Size in bytes", min_value=0)
-        
-        st.subheader("Columns")
-        col_name = st.text_input("Column name")
-        col_type = st.text_input("Column type")
-        if st.button("Add Column"):
-            if not hasattr(st.session_state, 'columns'):
-                st.session_state.columns = []
-            if col_name and col_type:
-                st.session_state.columns.append({"name": col_name, "type": col_type})
-        
-        if hasattr(st.session_state, 'columns'):
-            for i, col in enumerate(st.session_state.columns):
-                st.write(f"{i+1}. {col['name']} ({col['type']})")
-            if st.button("Clear Columns"):
-                st.session_state.columns = []
-        
-        # Partitioning information
-        st.subheader("Partitioning")
-        partition_col = st.text_input("Partition column")
-        partition_type = st.selectbox(
-            "Partition type",
-            ["RANGE", "LIST", "HASH"]
-        )
-        if st.button("Set Partitioning"):
-            st.session_state.partitioning = {
-                "column": partition_col,
-                "type": partition_type
-            }
-    
-    if st.button("Analyze with Advanced Optimizations"):
-        if query and analyzer:
-            with st.spinner("Performing advanced analysis..."):
-                # Create schema info object
-                schema_info = None
-                if hasattr(st.session_state, 'columns'):
-                    schema_info = SchemaInfo(
-                        table_name=table_name,
-                        columns=st.session_state.columns,
-                        row_count=row_count,
-                        size_bytes=size_bytes,
-                        partitioning=getattr(st.session_state, 'partitioning', None)
+    if st.button("Analyze Query"):
+        if query:
+            try:
+                with st.spinner("Analyzing query..."):
+                    result = analyzer.analyze_query(
+                        query,
+                        schema_info=schema_info if schema_info else None,
+                        partition_info=partition_info if partition_info else None,
+                        analyze_clustering=analyze_clustering,
+                        suggest_materialization=suggest_materialization,
+                        analyze_search=analyze_search,
+                        suggest_caching=suggest_caching,
+                        analyze_partitioning=analyze_partitioning
                     )
-                
-                # Get analysis results
-                analysis_results = analyzer.analyze_query(
-                    query,
-                    schema_info=schema_info
-                )
-                
-                # Display results in organized sections
-                st.subheader("Analysis Results")
-                
-                # Query Information
-                with st.expander("Query Information", expanded=True):
-                    st.info(f"Query Category: {analysis_results.category}")
-                    st.progress(
-                        analysis_results.complexity_score,
-                        text=f"Complexity Score: {analysis_results.complexity_score:.2f}"
-                    )
-                
-                # Antipatterns
-                if analysis_results.antipatterns:
-                    with st.expander("Antipatterns Detected", expanded=True):
-                        for pattern in analysis_results.antipatterns:
-                            st.warning(f"• {pattern}")
-                
-                # Clustering Recommendations
-                if enable_clustering and any("cluster" in s.lower() for s in analysis_results.suggestions):
-                    with st.expander("Clustering Recommendations", expanded=True):
-                        for suggestion in analysis_results.suggestions:
-                            if "cluster" in suggestion.lower():
-                                st.info(f"• {suggestion}")
-                
-                # Materialization Recommendations
-                if enable_materialization and analysis_results.materialization_suggestions:
-                    with st.expander("Materialization Recommendations", expanded=True):
-                        for suggestion in analysis_results.materialization_suggestions:
-                            st.info(f"• {suggestion}")
-                
-                # Search Optimization
-                if enable_search and any("search" in s.lower() for s in analysis_results.suggestions):
-                    with st.expander("Search Optimization Recommendations", expanded=True):
-                        for suggestion in analysis_results.suggestions:
-                            if "search" in suggestion.lower():
-                                st.info(f"• {suggestion}")
-                
-                # Caching Strategy
-                if enable_caching and any("cache" in s.lower() for s in analysis_results.suggestions):
-                    with st.expander("Caching Recommendations", expanded=True):
-                        for suggestion in analysis_results.suggestions:
-                            if "cache" in suggestion.lower():
-                                st.info(f"• {suggestion}")
-                
-                # Optimized Query
-                if analysis_results.optimized_query:
-                    with st.expander("Query Optimization Results", expanded=True):
-                        display_query_comparison(
-                            query,
-                            analysis_results.optimized_query
-                        )
-                        if st.button("Copy Optimized Query"):
-                            st.session_state.clipboard = format_sql(analysis_results.optimized_query)
-                            st.success("Query copied to clipboard!")
+                    
+                    if result:
+                        st.markdown("### Analysis Results")
+                        
+                        # Query Information
+                        st.markdown("#### Query Information")
+                        st.markdown(f"**Category:** {result.category}")
+                        st.markdown(f"**Confidence Score:** {result.confidence_score:.2f}")
+                        
+                        # Display comparisons
+                        display_query_comparison(query, result.optimized_query)
+                        
+                        # Antipatterns
+                        if result.antipatterns:
+                            st.markdown("#### Detected Antipatterns")
+                            for pattern in result.antipatterns:
+                                st.warning(pattern)
+                        
+                        # Optimization suggestions
+                        if result.suggestions:
+                            st.markdown("#### Optimization Suggestions")
+                            for suggestion in result.suggestions:
+                                st.info(suggestion)
+                    else:
+                        st.error("Failed to analyze query. Please try again.")
+            except Exception as e:
+                st.error(f"Analysis failed: {str(e)}")
+        else:
+            st.warning("Please enter a SQL query to analyze.")
 
 
 def main():

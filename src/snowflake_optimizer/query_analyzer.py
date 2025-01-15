@@ -210,6 +210,116 @@ class QueryAnalyzer:
             
         return suggestions
 
+    def _suggest_clustering_keys(self, query: str, schema_info: Optional[SchemaInfo] = None) -> List[str]:
+        """Suggest clustering keys for better query performance.
+        
+        Args:
+            query: SQL query string
+            schema_info: Optional schema information
+            
+        Returns:
+            List of clustering key suggestions
+        """
+        suggestions = []
+        query_upper = query.upper()
+        parsed = parse_one(query)
+        
+        # Extract columns from WHERE, ORDER BY, GROUP BY clauses
+        where_columns = set()
+        order_columns = set()
+        group_columns = set()
+        
+        try:
+            # Extract table names and their filter conditions
+            tables_and_filters = {}
+            
+            # Analyze query patterns
+            if "GROUP BY" in query_upper and "ORDER BY" in query_upper:
+                suggestions.append("Consider clustering on GROUP BY columns followed by ORDER BY columns")
+            
+            if "DATE" in query_upper or "TIMESTAMP" in query_upper:
+                suggestions.append("Consider clustering on date/timestamp columns for time-based queries")
+                
+            if "PARTITION BY" in query_upper:
+                suggestions.append("Align clustering keys with PARTITION BY columns for better pruning")
+                
+        except Exception:
+            pass
+            
+        return suggestions
+
+    def _suggest_materialized_views(self, query: str, schema_info: Optional[SchemaInfo] = None) -> List[str]:
+        """Suggest materialized views for query optimization.
+        
+        Args:
+            query: SQL query string
+            schema_info: Optional schema information
+            
+        Returns:
+            List of materialized view suggestions
+        """
+        suggestions = []
+        query_upper = query.upper()
+        
+        # Check for expensive aggregations
+        if ("GROUP BY" in query_upper and 
+            any(agg in query_upper for agg in ["SUM(", "COUNT(", "AVG(", "MAX(", "MIN("])):
+            suggestions.append("Consider creating a materialized view for frequently used aggregations")
+            
+        # Check for complex joins
+        if query_upper.count("JOIN") >= 3:
+            suggestions.append("Consider materializing frequently joined tables")
+            
+        # Check for window functions
+        if "OVER (" in query_upper:
+            suggestions.append("Consider materializing window function results if the base data changes infrequently")
+            
+        return suggestions
+
+    def _suggest_search_optimization(self, query: str) -> List[str]:
+        """Suggest search optimization service usage.
+        
+        Args:
+            query: SQL query string
+            
+        Returns:
+            List of search optimization suggestions
+        """
+        suggestions = []
+        query_upper = query.upper()
+        
+        # Check for text search patterns
+        if "LIKE" in query_upper or "CONTAINS" in query_upper:
+            suggestions.append("Enable search optimization service for text search columns")
+            
+        # Check for range scans
+        if "BETWEEN" in query_upper or "IN (" in query_upper:
+            suggestions.append("Consider search optimization for range scan columns")
+            
+        return suggestions
+
+    def _suggest_caching_strategy(self, query: str) -> List[str]:
+        """Suggest query result caching strategies.
+        
+        Args:
+            query: SQL query string
+            
+        Returns:
+            List of caching suggestions
+        """
+        suggestions = []
+        query_upper = query.upper()
+        
+        # Check for deterministic queries
+        if not any(keyword in query_upper for keyword in ["CURRENT_TIMESTAMP", "RANDOM", "UUID_STRING"]):
+            suggestions.append("Enable query result caching for deterministic queries")
+            
+        # Check for lookup patterns
+        if "IN (SELECT" in query_upper or "EXISTS (SELECT" in query_upper:
+            suggestions.append("Consider caching lookup table results")
+            
+        return suggestions
+
     def analyze_query(
         self,
         query: str,
@@ -240,6 +350,7 @@ class QueryAnalyzer:
         category_response = self.llm.invoke(
             self.categorization_template.format_messages(query=query)
         )
+        
         try:
             # Clean and parse the response
             response_text = category_response.content.strip()
@@ -250,28 +361,58 @@ class QueryAnalyzer:
                 category = QueryCategory(category_name)
             else:
                 category = QueryCategory.UNKNOWN
-        except (json.JSONDecodeError, ValueError, KeyError, AttributeError):
+        except (json.JSONDecodeError, ValueError, KeyError):
             category = QueryCategory.UNKNOWN
         
-        # Get LLM analysis
-        analysis_response = self.llm.invoke(
-            self.analysis_template.format_messages(query=query)
-        )
+        # Get advanced Snowflake-specific suggestions
+        clustering_suggestions = self._suggest_clustering_keys(query, schema_info)
+        materialization_suggestions = self._suggest_materialized_views(query, schema_info)
+        search_suggestions = self._suggest_search_optimization(query)
+        caching_suggestions = self._suggest_caching_strategy(query)
         
-        # Get optimized query
-        optimization_response = self.llm.invoke(
-            self.optimization_template.format_messages(query=query)
+        # Get LLM analysis with enhanced context
+        analysis_template_with_context = self.analysis_template.format_messages(
+            query=query,
+            context=f"""Consider Snowflake-specific features:
+            - Clustering keys
+            - Materialized views
+            - Search optimization
+            - Query result caching
+            - Micro-partitions
+            - Zero-copy cloning
+            - Time travel
+            """
         )
+        analysis_response = self.llm.invoke(analysis_template_with_context)
         
-        # Extract optimized query and suggestions from LLM responses
+        # Get optimized query with Snowflake-specific optimizations
+        optimization_template_with_context = self.optimization_template.format_messages(
+            query=query,
+            context="""Use Snowflake-specific features:
+            - CLUSTER BY for optimal data organization
+            - Materialized views for complex aggregations
+            - Search optimization for text searches
+            - Result cache for deterministic queries
+            - Micro-partitioning for efficient pruning
+            """
+        )
+        optimization_response = self.llm.invoke(optimization_template_with_context)
+        
+        # Extract optimized query and suggestions
         suggestions = []
         optimized_query = None
-        confidence_score = 0.8  # Set a default confidence score
+        confidence_score = 0.8
         
-        # Parse LLM responses and extract relevant information
+        # Parse LLM responses and extract suggestions
         for line in analysis_response.content.split('\n'):
             if line.strip().startswith('- '):
                 suggestions.append(line.strip()[2:])
+        
+        # Add advanced Snowflake-specific suggestions
+        suggestions.extend(clustering_suggestions)
+        suggestions.extend(materialization_suggestions)
+        suggestions.extend(search_suggestions)
+        suggestions.extend(caching_suggestions)
         
         # Extract optimized query from the response
         response_lines = optimization_response.content.split('\n')
@@ -305,7 +446,7 @@ class QueryAnalyzer:
             confidence_score=confidence_score,
             category=category,
             complexity_score=complexity_score,
-            estimated_cost=None,  # Would require Snowflake connection for EXPLAIN
-            materialization_suggestions=[],  # Would require schema analysis
+            estimated_cost=None,
+            materialization_suggestions=materialization_suggestions,
             index_suggestions=index_suggestions
         ) 
