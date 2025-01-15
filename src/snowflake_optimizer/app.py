@@ -1,15 +1,19 @@
 """Main Streamlit application for Snowflake Query Optimizer."""
 
 import os
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any, Tuple
 import json
 import logging
+import traceback
 from datetime import datetime
 import streamlit as st
 from dotenv import load_dotenv
 import sqlparse
 import difflib
 import pandas as pd
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import io
 
 from snowflake_optimizer.data_collector import QueryMetricsCollector
 from snowflake_optimizer.query_analyzer import QueryAnalyzer, SchemaInfo
@@ -217,40 +221,27 @@ def highlight_sql(text: str) -> str:
 
 def display_query_comparison(original: str, optimized: str):
     """Display a side-by-side comparison of original and optimized queries."""
-    print("\n=== Starting Query Comparison Display ===")
-    print(f"Original query length: {len(original) if original else 0}")
-    print(f"Optimized query length: {len(optimized) if optimized else 0}")
-    
     if not original or not optimized:
         print("Missing query for comparison!")
-        print(f"Original exists: {bool(original)}")
-        print(f"Optimized exists: {bool(optimized)}")
         return
     
     st.markdown("### Query Comparison")
-    print("Added comparison header")
     
     # Create columns for side-by-side view
     col1, col2 = st.columns(2)
-    print("Created columns for side-by-side view")
     
     with col1:
         st.markdown("**Original Query**")
         formatted_original = format_sql(original)
-        print(f"Formatted original query, length: {len(formatted_original)}")
         st.code(formatted_original, language="sql")
-        print("Displayed original query")
         
     with col2:
         st.markdown("**Optimized Query**")
         formatted_optimized = format_sql(optimized)
-        print(f"Formatted optimized query, length: {len(formatted_optimized)}")
         st.code(formatted_optimized, language="sql")
-        print("Displayed optimized query")
     
     # Show diff below
     st.markdown("### Changes")
-    print("Added changes header")
     
     st.markdown("""
     <style>
@@ -273,18 +264,13 @@ def display_query_comparison(original: str, optimized: str):
         <span><span style="color: #f85149">-</span> Removed</span>
     </div>
     """, unsafe_allow_html=True)
-    print("Added diff legend")
     
     try:
         diff_html = create_query_diff(original, optimized)
-        print(f"Created diff HTML, length: {len(diff_html)}")
         st.markdown(diff_html, unsafe_allow_html=True)
-        print("Displayed diff view")
     except Exception as e:
         print(f"Failed to create or display diff: {str(e)}")
         st.error("Failed to display query differences")
-    
-    print("Completed query comparison display")
 
 def render_query_history_view(collector: Optional[QueryMetricsCollector], analyzer: Optional[QueryAnalyzer]):
     """Render the query history analysis view.
@@ -426,54 +412,153 @@ def render_query_history_view(collector: Optional[QueryMetricsCollector], analyz
                     st.success("Query copied to clipboard!")
 
 
+def create_excel_report(batch_results: List[Dict]) -> bytes:
+    """Create Excel report from batch analysis results."""
+    if not batch_results:
+        raise ValueError("No results to export")
+    
+    # Prepare data for each sheet
+    error_data = []
+    metric_data = []
+    optimization_data = []
+    
+    for result in batch_results:
+        analysis = result['analysis']
+        
+        # Add error patterns
+        if analysis.antipatterns:
+            for pattern in analysis.antipatterns:
+                error_data.append({
+                    'Query': result['filename'],
+                    'Category': 'Performance',
+                    'Pattern': pattern,
+                    'Severity': 'High',
+                    'Suggestion': analysis.suggestions[0] if analysis.suggestions else 'None'
+                })
+        
+        # Add metrics
+        metric_data.append({
+            'Query': result['filename'],
+            'Category': analysis.category,
+            'Complexity': analysis.complexity_score,
+            'Joins': result['original_query'].upper().count("JOIN"),
+            'Conditions': result['original_query'].upper().count("WHERE") + 
+                        result['original_query'].upper().count("AND") + 
+                        result['original_query'].upper().count("OR"),
+            'Subqueries': result['original_query'].upper().count("SELECT") - 1
+        })
+        
+        # Add optimization details
+        optimization_data.append({
+            'Query': result['filename'],
+            'Original': result['original_query'],
+            'Optimized': analysis.optimized_query if analysis.optimized_query else 'No optimization',
+            'Suggestions': '\n'.join(analysis.suggestions) if analysis.suggestions else 'None'
+        })
+    
+    # Create DataFrames
+    error_df = pd.DataFrame(error_data)
+    metric_df = pd.DataFrame(metric_data)
+    optimization_df = pd.DataFrame(optimization_data)
+    
+    # Create Excel file
+    output = io.BytesIO()
+    
+    try:
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            # Write sheets
+            error_df.to_excel(writer, sheet_name='Errors', index=False)
+            metric_df.to_excel(writer, sheet_name='Metrics', index=False)
+            optimization_df.to_excel(writer, sheet_name='Optimizations', index=False)
+            
+            # Get workbook and format
+            workbook = writer.book
+            header_format = workbook.add_format({
+                'bold': True,
+                'bg_color': '#D9E1F2',
+                'border': 1
+            })
+            
+            # Format each sheet
+            for sheet_name in writer.sheets:
+                worksheet = writer.sheets[sheet_name]
+                df = error_df if sheet_name == 'Errors' else metric_df if sheet_name == 'Metrics' else optimization_df
+                
+                # Format headers and set column widths
+                for col_num, col_name in enumerate(df.columns):
+                    worksheet.write(0, col_num, col_name, header_format)
+                    
+                    # Set column widths based on content
+                    max_length = max(
+                        df[col_name].astype(str).apply(len).max(),
+                        len(str(col_name))
+                    )
+                    worksheet.set_column(col_num, col_num, min(max_length + 2, 100))
+        
+        return output.getvalue()
+    finally:
+        output.close()
+
+def analyze_query_callback(analyzer: Optional[QueryAnalyzer]):
+    """Callback function for analyzing queries in the manual analysis view.
+    
+    Args:
+        analyzer: QueryAnalyzer instance to use for analysis
+    """
+    print("\n=== Starting Query Analysis Callback ===")
+    
+    if not analyzer:
+        print("No analyzer available")
+        st.error("Query analyzer is not initialized")
+        return
+    
+    if not st.session_state.formatted_query:
+        print("No query to analyze")
+        return
+        
+    try:
+        print(f"Analyzing query of length: {len(st.session_state.formatted_query)}")
+        st.session_state.analysis_results = analyzer.analyze_query(
+            st.session_state.formatted_query,
+            schema_info=st.session_state.schema_info if hasattr(st.session_state, 'schema_info') else None
+        )
+        print("Analysis completed successfully")
+        
+        # Store the analyzed query for comparison
+        st.session_state.selected_query = st.session_state.formatted_query
+        
+    except Exception as e:
+        print(f"Analysis failed: {str(e)}")
+        st.error(f"Analysis failed: {str(e)}")
+        st.session_state.analysis_results = None
+
 def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
     """Render the manual query analysis view."""
     print("\n=== Starting Manual Analysis View ===")
     st.header("Manual Query Analysis")
     
-    # Initialize session state variables
+    if not analyzer:
+        st.error("Query analyzer is not initialized. Please check your configuration.")
+        return
+    
+    # Initialize session state variables if they don't exist
     if "formatted_query" not in st.session_state:
         st.session_state.formatted_query = ""
-        print("Initialized formatted_query in session state")
     if "analysis_results" not in st.session_state:
         st.session_state.analysis_results = None
-        print("Initialized analysis_results in session state")
     if "selected_query" not in st.session_state:
         st.session_state.selected_query = None
-        print("Initialized selected_query in session state")
     if "batch_results" not in st.session_state:
         st.session_state.batch_results = []
-        print("Initialized batch_results in session state")
-    
-    def analyze_query_callback():
-        """Callback function for query analysis."""
-        print("\n=== Analyze Query Callback Triggered ===")
-        if st.session_state.formatted_query and analyzer:
-            print(f"Query to analyze (length): {len(st.session_state.formatted_query)}")
-            try:
-                # Store the query being analyzed
-                st.session_state.selected_query = st.session_state.formatted_query
-                print(f"Stored query in selected_query (length): {len(st.session_state.selected_query)}")
-                
-                st.session_state.analysis_results = analyzer.analyze_query(
-                    st.session_state.selected_query,
-                    schema_info=st.session_state.schema_info if "schema_info" in st.session_state else None
-                )
-                print("Analysis completed")
-                if st.session_state.analysis_results:
-                    print(f"Has optimized query: {st.session_state.analysis_results.optimized_query is not None}")
-                    if st.session_state.analysis_results.optimized_query:
-                        print(f"Optimized query length: {len(st.session_state.analysis_results.optimized_query)}")
-            except Exception as e:
-                print(f"Analysis failed: {str(e)}")
-                st.error(f"Analysis failed: {str(e)}")
     
     # Query input methods
     input_method = st.radio(
         "Choose input method",
         ["Direct Input", "File Upload", "Batch Analysis"]
     )
-    print(f"Selected input method: {input_method}")
+    
+    # Store current batch results
+    current_batch_results = st.session_state.batch_results.copy() if hasattr(st.session_state, 'batch_results') else []
     
     if input_method == "Direct Input":
         st.markdown("### Enter SQL Query")
@@ -482,7 +567,6 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
         if st.button("Format Query"):
             if st.session_state.formatted_query:
                 st.session_state.formatted_query = format_sql(st.session_state.formatted_query)
-                logging.debug("Query formatted")
         
         # Text area for SQL input
         query = st.text_area(
@@ -490,17 +574,17 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
             value=st.session_state.formatted_query,
             height=200,
             help="Paste your SQL query here for analysis",
-            key="sql_input",
-            on_change=lambda: setattr(st.session_state, "formatted_query", st.session_state.sql_input)
+            key="sql_input"
         )
-        print(f"Query input received, length: {len(query) if query else 0}")
         
-        # Display formatted query with syntax highlighting
+        # Update formatted_query only if query has changed
+        if query != st.session_state.formatted_query:
+            st.session_state.formatted_query = query
+        
         if query:
             st.markdown("### Preview")
             st.code(query, language="sql")
-            print("Query preview displayed")
-
+        
         # Optional schema information
         if st.checkbox("Add table schema information"):
             schema_col1, schema_col2 = st.columns([1, 1])
@@ -522,14 +606,11 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
                     columns=columns,
                     row_count=row_count
                 )
-                logging.debug("Schema info added to session state")
             except json.JSONDecodeError:
                 st.error("Invalid JSON format for columns")
                 st.session_state.schema_info = None
-                logging.error("Invalid JSON format for schema columns")
         
-        analyze_button = st.button("Analyze", on_click=analyze_query_callback)
-        print(f"Analyze button clicked: {analyze_button}")
+        analyze_button = st.button("Analyze", on_click=lambda: analyze_query_callback(analyzer))
     
     elif input_method == "File Upload":
         st.markdown("### Upload SQL File")
@@ -541,213 +622,129 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
             st.markdown("### Preview")
             st.code(st.session_state.formatted_query, language="sql")
             
-            analyze_button = st.button("Analyze", on_click=analyze_query_callback)
-            print(f"Analyze button clicked: {analyze_button}")
+            analyze_button = st.button("Analyze", on_click=lambda: analyze_query_callback(analyzer))
     
     elif input_method == "Batch Analysis":
-        st.markdown("### Batch Query Analysis")
+        st.markdown("### Upload SQL Files")
+        uploaded_files = st.file_uploader("Choose SQL files", type=["sql"], accept_multiple_files=True)
         
-        # File upload for batch analysis
-        uploaded_files = st.file_uploader(
-            "Upload SQL files",
-            type=["sql"],
-            accept_multiple_files=True
-        )
-        
-        # Schema information for all queries
-        if st.checkbox("Add common schema information"):
-            schema_col1, schema_col2 = st.columns([1, 1])
-            
-            with schema_col1:
-                table_name = st.text_input("Table name")
-                row_count = st.number_input("Approximate row count", min_value=0)
-            
-            with schema_col2:
-                columns_json = st.text_area(
-                    "Columns (JSON format)",
-                    help='Example: [{"name": "id", "type": "INTEGER"}, {"name": "email", "type": "VARCHAR"}]'
-                )
-                
-            try:
-                columns = json.loads(columns_json) if columns_json else []
-                st.session_state.schema_info = SchemaInfo(
-                    table_name=table_name,
-                    columns=columns,
-                    row_count=row_count
-                )
-                print("Schema info added to session state")
-            except json.JSONDecodeError:
-                st.error("Invalid JSON format for columns")
-                st.session_state.schema_info = None
-                print("Invalid JSON format for schema columns")
-        
-        if uploaded_files and st.button("Analyze All"):
-            st.session_state.batch_results = []
-            
-            # Progress bar for batch analysis
+        if uploaded_files:
+            # Initialize progress tracking
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            for i, sql_file in enumerate(uploaded_files):
-                try:
-                    # Update progress
-                    progress = (i + 1) / len(uploaded_files)
+            # Process uploaded files
+            all_queries = []
+            for sql_file in uploaded_files:
+                content = sql_file.getvalue().decode()
+                queries = split_sql_queries(content)
+                print(f"\n=== Splitting SQL Queries ===")
+                print(f"Found {len(queries)} queries in {sql_file.name}")
+                for i, query in enumerate(queries):
+                    print(f"Found valid query of length: {len(query)}")
+                    all_queries.append({
+                        'filename': f"{sql_file.name} (Query {i+1})",
+                        'query': query
+                    })
+            print(f"Total queries found: {len(all_queries)}")
+            
+            analyze_button = st.button("Analyze All", key="batch_analyze")
+            if analyze_button:
+                results = []
+                for i, query_info in enumerate(all_queries):
+                    progress = (i + 1) / len(all_queries)
                     progress_bar.progress(progress)
-                    status_text.text(f"Analyzing query {i + 1} of {len(uploaded_files)}")
+                    status_text.text(f"Analyzing {query_info['filename']}...")
                     
-                    # Read and analyze query
-                    query = sql_file.getvalue().decode()
-                    formatted_query = format_sql(query)
-                    
-                    analysis_result = analyzer.analyze_query(
-                        formatted_query,
-                        schema_info=st.session_state.schema_info if "schema_info" in st.session_state else None
-                    )
-                    
-                    # Store results
-                    st.session_state.batch_results.append({
-                        "filename": sql_file.name,
-                        "original_query": formatted_query,
-                        "analysis": analysis_result
-                    })
-                    
-                except Exception as e:
-                    st.error(f"Failed to analyze {sql_file.name}: {str(e)}")
+                    try:
+                        formatted_query = format_sql(query_info['query'])
+                        analysis = analyzer.analyze_query(formatted_query)
+                        if analysis:
+                            results.append({
+                                'filename': query_info['filename'],
+                                'original_query': query_info['query'],
+                                'analysis': analysis
+                            })
+                    except Exception as e:
+                        st.error(f"Failed to analyze {query_info['filename']}: {str(e)}")
+                
+                st.session_state.batch_results = results
+                status_text.text("Analysis complete!")
             
-            # Clear progress indicators
-            progress_bar.empty()
-            status_text.empty()
-            
-            st.success(f"Analyzed {len(st.session_state.batch_results)} queries")
-        
-        # Display batch results
-        if st.session_state.batch_results:
-            st.markdown("### Batch Analysis Results")
-            
-            for i, result in enumerate(st.session_state.batch_results, 1):
-                with st.expander(f"Query {i}: {result['filename']}"):
-                    # Display original query
-                    st.markdown("#### Original Query")
-                    st.code(result["original_query"], language="sql")
-                    
-                    # Display analysis results
-                    analysis = result["analysis"]
-                    
-                    st.markdown("#### Analysis")
-                    st.info(f"Query Category: {analysis.category}")
-                    st.progress(
-                        analysis.complexity_score,
-                        text=f"Complexity Score: {analysis.complexity_score:.2f}"
-                    )
-                    
-                    # Display antipatterns
-                    if analysis.antipatterns:
-                        st.warning("Antipatterns Detected:")
-                        for pattern in analysis.antipatterns:
-                            st.write(f"- {pattern}")
-                    
-                    # Display suggestions
-                    if analysis.suggestions:
-                        st.info("Optimization Suggestions:")
-                        for suggestion in analysis.suggestions:
-                            st.write(f"- {suggestion}")
-                    
-                    # Display optimized query
-                    if analysis.optimized_query:
-                        st.success("Query Optimization Results")
-                        display_query_comparison(
-                            result["original_query"],
-                            analysis.optimized_query
-                        )
-            
-            # Export results button
-            if st.button("Export Analysis Report"):
-                report = []
+            # Display results if available
+            if hasattr(st.session_state, 'batch_results') and st.session_state.batch_results:
+                st.markdown("### Analysis Results")
                 for result in st.session_state.batch_results:
-                    analysis = result["analysis"]
-                    report.append({
-                        "filename": result["filename"],
-                        "category": analysis.category,
-                        "complexity_score": analysis.complexity_score,
-                        "antipatterns": analysis.antipatterns,
-                        "suggestions": analysis.suggestions,
-                        "original_query": result["original_query"],
-                        "optimized_query": analysis.optimized_query
-                    })
-                
-                # Convert to DataFrame for easy export
-                df = pd.DataFrame(report)
-                
-                # Create a download button
-                st.download_button(
-                    "Download Report (CSV)",
-                    df.to_csv(index=False).encode('utf-8'),
-                    "snowflake_optimization_report.csv",
-                    "text/csv",
-                    key='download-csv'
-                )
-    
-    # Display analysis results (for Direct Input and File Upload modes)
-    if input_method != "Batch Analysis" and st.session_state.analysis_results:
-        print("\n=== Displaying Analysis Results ===")
+                    with st.expander(f"Results for {result['filename']}"):
+                        st.code(result['original_query'], language="sql")
+                        st.info(f"Category: {result['analysis'].category}")
+                        st.progress(result['analysis'].complexity_score, 
+                                  text=f"Complexity Score: {result['analysis'].complexity_score:.2f}")
+                        
+                        if result['analysis'].antipatterns:
+                            st.warning("Antipatterns:")
+                            for pattern in result['analysis'].antipatterns:
+                                st.write(f"- {pattern}")
+                        
+                        if result['analysis'].suggestions:
+                            st.info("Suggestions:")
+                            for suggestion in result['analysis'].suggestions:
+                                st.write(f"- {suggestion}")
+                        
+                        if result['analysis'].optimized_query:
+                            st.success("Optimized Query:")
+                            st.code(result['analysis'].optimized_query, language="sql")
+            
+            # Export functionality in a separate section
+            if hasattr(st.session_state, 'batch_results') and st.session_state.batch_results:
+                st.markdown("### Export Results")
+                try:
+                    print("\n=== Export Button Clicked ===")
+                    print(f"Creating Excel report for {len(st.session_state.batch_results)} results")
+                    excel_data = create_excel_report(st.session_state.batch_results)
+                    st.download_button(
+                        label="Download Excel Report",
+                        data=excel_data,
+                        file_name="query_analysis_report.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="download_excel"  # Add unique key
+                    )
+                except Exception as e:
+                    st.error(f"Failed to create Excel report: {str(e)}")
+                    print(f"Excel export error: {str(e)}")
+                    print(f"Traceback: {traceback.format_exc()}")
+            
+    # Display analysis results if available
+    if st.session_state.analysis_results:
         st.subheader("Analysis Results")
         
         # Display query category and complexity
         st.info(f"Query Category: {st.session_state.analysis_results.category}")
-        st.progress(
-            st.session_state.analysis_results.complexity_score,
-            text=f"Complexity Score: {st.session_state.analysis_results.complexity_score:.2f}"
-        )
-        print("Displayed category and complexity")
+        st.progress(st.session_state.analysis_results.complexity_score, 
+                   text=f"Complexity Score: {st.session_state.analysis_results.complexity_score:.2f}")
         
         # Display antipatterns
         if st.session_state.analysis_results.antipatterns:
             st.warning("Antipatterns Detected:")
             for pattern in st.session_state.analysis_results.antipatterns:
                 st.write(f"- {pattern}")
-            print(f"Displayed {len(st.session_state.analysis_results.antipatterns)} antipatterns")
         
-        # Display all suggestions
-        all_suggestions = []
+        # Display suggestions
         if st.session_state.analysis_results.suggestions:
-            all_suggestions.extend(st.session_state.analysis_results.suggestions)
-        if st.session_state.analysis_results.materialization_suggestions:
-            all_suggestions.extend(st.session_state.analysis_results.materialization_suggestions)
-        if st.session_state.analysis_results.index_suggestions:
-            all_suggestions.extend(st.session_state.analysis_results.index_suggestions)
-        
-        if all_suggestions:
             st.info("Optimization Suggestions:")
-            for suggestion in all_suggestions:
+            for suggestion in st.session_state.analysis_results.suggestions:
                 st.write(f"- {suggestion}")
-            print(f"Displayed {len(all_suggestions)} suggestions")
         
         # Display optimized query
-        print("\n=== Query Comparison Section ===")
-        print(f"Has analysis results: {st.session_state.analysis_results is not None}")
-        print(f"Has optimized query: {st.session_state.analysis_results.optimized_query is not None}")
-        print(f"Has selected query: {st.session_state.selected_query is not None}")
-        
         if st.session_state.analysis_results.optimized_query:
-            print("\nAttempting to display query comparison")
-            print(f"Original query length: {len(st.session_state.selected_query)}")
-            print(f"Optimized query length: {len(st.session_state.analysis_results.optimized_query)}")
-            
             st.success("Query Optimization Results")
             display_query_comparison(
-                st.session_state.selected_query,
+                st.session_state.formatted_query,
                 st.session_state.analysis_results.optimized_query
             )
-            print("Query comparison displayed")
-            
             if st.button("Copy Optimized Query"):
                 st.session_state.clipboard = format_sql(st.session_state.analysis_results.optimized_query)
                 st.success("Query copied to clipboard!")
-                print("Optimized query copied to clipboard")
-        else:
-            print("No optimized query available for display")
-
-    print("Completed render_manual_analysis_view")
 
 
 def render_advanced_optimization_view(analyzer: QueryAnalyzer):
@@ -824,6 +821,270 @@ def render_advanced_optimization_view(analyzer: QueryAnalyzer):
         else:
             st.warning("Please enter a SQL query to analyze.")
 
+
+def split_sql_queries(content: str) -> List[str]:
+    """Split SQL content into individual queries based on blank lines.
+    
+    Args:
+        content: String containing multiple SQL queries separated by blank lines
+        
+    Returns:
+        List of individual SQL queries
+    """
+    print("\n=== Splitting SQL Queries ===")
+    # Remove comments and empty lines
+    lines = []
+    in_multiline_comment = False
+    
+    for line in content.splitlines():
+        line = line.strip()
+        
+        # Skip empty lines
+        if not line:
+            continue
+            
+        # Handle multiline comments
+        if line.startswith('/*'):
+            in_multiline_comment = True
+            continue
+        if '*/' in line:
+            in_multiline_comment = False
+            continue
+        if in_multiline_comment:
+            continue
+            
+        # Handle single line comments
+        if line.startswith('--'):
+            continue
+            
+        lines.append(line)
+    
+    # Join lines back together
+    content = ' '.join(lines)
+    
+    # Split by semicolon and filter
+    queries = []
+    current_query = []
+    
+    for line in content.split(';'):
+        line = line.strip()
+        if line:
+            # Basic SQL validation
+            if any(keyword in line.upper() for keyword in ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER']):
+                queries.append(line + ';')
+                print(f"Found valid query of length: {len(line)}")
+            else:
+                print(f"Skipping invalid SQL: {line[:50]}...")
+    
+    print(f"Total queries found: {len(queries)}")
+    return queries
+
+def analyze_query_with_retry(analyzer: QueryAnalyzer, query: str, schema_info: Optional[SchemaInfo] = None, max_retries: int = 3) -> Optional[Any]:
+    """Analyze a query with retry logic and error handling.
+    
+    Args:
+        analyzer: QueryAnalyzer instance
+        query: SQL query to analyze
+        schema_info: Optional schema information
+        max_retries: Maximum number of retry attempts
+        
+    Returns:
+        Analysis results or None if analysis fails
+    """
+    print(f"\n=== Analyzing Query (length: {len(query)}) ===")
+    
+    for attempt in range(max_retries):
+        try:
+            # Try to format the query first
+            formatted_query = format_sql(query)
+            print(f"Attempt {attempt + 1}: Formatted query length: {len(formatted_query)}")
+            
+            # Analyze the formatted query
+            result = analyzer.analyze_query(
+                formatted_query,
+                schema_info=schema_info
+            )
+            print("Analysis successful")
+            return result
+            
+        except Exception as e:
+            print(f"Attempt {attempt + 1} failed: {str(e)}")
+            if attempt == max_retries - 1:
+                raise Exception(f"Failed to analyze query after {max_retries} attempts: {str(e)}")
+            continue
+    
+    return None
+
+def group_related_queries(queries: List[Dict]) -> List[Dict]:
+    """Group related queries based on common tables and patterns.
+    
+    Args:
+        queries: List of query dictionaries with analysis results
+        
+    Returns:
+        List of query groups with optimization suggestions
+    """
+    groups = []
+    processed = set()
+    
+    for i, query in enumerate(queries):
+        if i in processed:
+            continue
+            
+        related = {i}
+        base_tables = set(query.get('tables', []))
+        
+        # Find related queries
+        for j, other in enumerate(queries):
+            if j != i and j not in processed:
+                other_tables = set(other.get('tables', []))
+                # If queries share tables or have similar patterns
+                if (base_tables & other_tables) or (
+                    query['analysis'].category == other['analysis'].category
+                ):
+                    related.add(j)
+        
+        # Create group
+        group = {
+            'queries': [queries[idx] for idx in related],
+            'common_tables': base_tables,
+            'category': query['analysis'].category,
+            'group_suggestions': []
+        }
+        
+        # Aggregate group-level suggestions
+        all_suggestions = []
+        for q in group['queries']:
+            if q['analysis'].suggestions:
+                all_suggestions.extend(q['analysis'].suggestions)
+        
+        # Find common suggestions
+        if all_suggestions:
+            from collections import Counter
+            suggestion_counts = Counter(all_suggestions)
+            group['group_suggestions'] = [
+                sugg for sugg, count in suggestion_counts.items()
+                if count > 1  # Suggestion appears in multiple queries
+            ]
+        
+        groups.append(group)
+        processed.update(related)
+    
+    return groups
+
+def get_error_analysis_prompt(query: str) -> str:
+    """Generate the prompt for LLM to analyze SQL query errors and anti-patterns.
+    
+    Args:
+        query: SQL query to analyze
+        
+    Returns:
+        Formatted prompt for LLM
+    """
+    return f"""Analyze the following SQL query for potential errors, anti-patterns, and optimization opportunities. 
+Provide a detailed analysis in the following JSON format:
+
+{{
+    "error_patterns": [
+        {{
+            "category": "One of: Performance, Logic, Complexity, Best Practice, Security, Maintainability",
+            "subcategory": "Specific area within the category",
+            "pattern": "Name of the anti-pattern or issue",
+            "severity": "One of: High, Medium, Low",
+            "impact": "Brief impact description",
+            "description": "Detailed explanation of the issue",
+            "recommendation": "How to fix or improve"
+        }}
+    ],
+    "query_metrics": {{
+        "complexity_score": "Score from 0-1",
+        "readability_score": "Score from 0-1",
+        "maintainability_score": "Score from 0-1",
+        "performance_impact": "Score from 0-1",
+        "structural_metrics": {{
+            "num_joins": "Number",
+            "num_conditions": "Number",
+            "nesting_depth": "Number",
+            "num_aggregations": "Number"
+        }}
+    }}
+}}
+
+Focus on:
+1. Performance implications
+2. Logical correctness
+3. Best practices
+4. Maintainability issues
+5. Security concerns
+6. Complexity assessment
+
+Query to analyze:
+{query}
+
+Provide the analysis in the exact JSON format specified above."""
+
+def analyze_query_batch(queries: List[Dict], analyzer: QueryAnalyzer, schema_info: Optional[SchemaInfo] = None) -> List[Dict]:
+    """Analyze a batch of queries in parallel using multi-threading.
+    
+    Args:
+        queries: List of query dictionaries containing filename and query
+        analyzer: QueryAnalyzer instance
+        schema_info: Optional schema information
+        
+    Returns:
+        List of analysis results
+    """
+    print("\n=== Starting Batch Analysis ===")
+    print(f"Number of queries to analyze: {len(queries)}")
+    results = []
+    
+    # Calculate optimal number of workers
+    max_workers = min(32, len(queries))  # Cap at 32 threads
+    print(f"Using {max_workers} worker threads")
+    
+    def analyze_single_query(query_info: Dict) -> Optional[Dict]:
+        try:
+            print(f"\nAnalyzing query from {query_info['filename']}")
+            analysis_result = analyzer.analyze_query(
+                query_info['query'],
+                schema_info=schema_info
+            )
+            
+            if analysis_result:
+                print(f"Analysis successful for {query_info['filename']}")
+                return {
+                    "filename": query_info['filename'],
+                    "original_query": query_info['query'],
+                    "analysis": analysis_result
+                }
+            print(f"No analysis result for {query_info['filename']}")
+            return None
+            
+        except Exception as e:
+            print(f"Error analyzing {query_info['filename']}: {str(e)}")
+            return None
+    
+    # Use ThreadPoolExecutor for parallel processing
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks and get futures
+        future_to_query = {
+            executor.submit(analyze_single_query, query_info): query_info
+            for query_info in queries
+        }
+        
+        # Process completed futures as they finish
+        for future in as_completed(future_to_query):
+            query_info = future_to_query[future]
+            try:
+                result = future.result()
+                if result:
+                    results.append(result)
+                    print(f"Added result for {query_info['filename']} to results list")
+            except Exception as e:
+                print(f"Analysis failed for {query_info['filename']}: {str(e)}")
+    
+    print(f"\nBatch analysis completed. Total results: {len(results)}")
+    return results
 
 def main():
     """Main function to run the Streamlit application."""
