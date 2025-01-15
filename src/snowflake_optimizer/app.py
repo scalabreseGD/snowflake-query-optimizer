@@ -9,6 +9,7 @@ import streamlit as st
 from dotenv import load_dotenv
 import sqlparse
 import difflib
+import pandas as pd
 
 from snowflake_optimizer.data_collector import QueryMetricsCollector
 from snowflake_optimizer.query_analyzer import QueryAnalyzer, SchemaInfo
@@ -440,6 +441,9 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
     if "selected_query" not in st.session_state:
         st.session_state.selected_query = None
         print("Initialized selected_query in session state")
+    if "batch_results" not in st.session_state:
+        st.session_state.batch_results = []
+        print("Initialized batch_results in session state")
     
     def analyze_query_callback():
         """Callback function for query analysis."""
@@ -527,8 +531,164 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
         analyze_button = st.button("Analyze", on_click=analyze_query_callback)
         print(f"Analyze button clicked: {analyze_button}")
     
-    # Display analysis results
-    if st.session_state.analysis_results:
+    elif input_method == "File Upload":
+        st.markdown("### Upload SQL File")
+        uploaded_file = st.file_uploader("Choose a SQL file", type=["sql"])
+        
+        if uploaded_file:
+            query = uploaded_file.getvalue().decode()
+            st.session_state.formatted_query = format_sql(query)
+            st.markdown("### Preview")
+            st.code(st.session_state.formatted_query, language="sql")
+            
+            analyze_button = st.button("Analyze", on_click=analyze_query_callback)
+            print(f"Analyze button clicked: {analyze_button}")
+    
+    elif input_method == "Batch Analysis":
+        st.markdown("### Batch Query Analysis")
+        
+        # File upload for batch analysis
+        uploaded_files = st.file_uploader(
+            "Upload SQL files",
+            type=["sql"],
+            accept_multiple_files=True
+        )
+        
+        # Schema information for all queries
+        if st.checkbox("Add common schema information"):
+            schema_col1, schema_col2 = st.columns([1, 1])
+            
+            with schema_col1:
+                table_name = st.text_input("Table name")
+                row_count = st.number_input("Approximate row count", min_value=0)
+            
+            with schema_col2:
+                columns_json = st.text_area(
+                    "Columns (JSON format)",
+                    help='Example: [{"name": "id", "type": "INTEGER"}, {"name": "email", "type": "VARCHAR"}]'
+                )
+                
+            try:
+                columns = json.loads(columns_json) if columns_json else []
+                st.session_state.schema_info = SchemaInfo(
+                    table_name=table_name,
+                    columns=columns,
+                    row_count=row_count
+                )
+                print("Schema info added to session state")
+            except json.JSONDecodeError:
+                st.error("Invalid JSON format for columns")
+                st.session_state.schema_info = None
+                print("Invalid JSON format for schema columns")
+        
+        if uploaded_files and st.button("Analyze All"):
+            st.session_state.batch_results = []
+            
+            # Progress bar for batch analysis
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            for i, sql_file in enumerate(uploaded_files):
+                try:
+                    # Update progress
+                    progress = (i + 1) / len(uploaded_files)
+                    progress_bar.progress(progress)
+                    status_text.text(f"Analyzing query {i + 1} of {len(uploaded_files)}")
+                    
+                    # Read and analyze query
+                    query = sql_file.getvalue().decode()
+                    formatted_query = format_sql(query)
+                    
+                    analysis_result = analyzer.analyze_query(
+                        formatted_query,
+                        schema_info=st.session_state.schema_info if "schema_info" in st.session_state else None
+                    )
+                    
+                    # Store results
+                    st.session_state.batch_results.append({
+                        "filename": sql_file.name,
+                        "original_query": formatted_query,
+                        "analysis": analysis_result
+                    })
+                    
+                except Exception as e:
+                    st.error(f"Failed to analyze {sql_file.name}: {str(e)}")
+            
+            # Clear progress indicators
+            progress_bar.empty()
+            status_text.empty()
+            
+            st.success(f"Analyzed {len(st.session_state.batch_results)} queries")
+        
+        # Display batch results
+        if st.session_state.batch_results:
+            st.markdown("### Batch Analysis Results")
+            
+            for i, result in enumerate(st.session_state.batch_results, 1):
+                with st.expander(f"Query {i}: {result['filename']}"):
+                    # Display original query
+                    st.markdown("#### Original Query")
+                    st.code(result["original_query"], language="sql")
+                    
+                    # Display analysis results
+                    analysis = result["analysis"]
+                    
+                    st.markdown("#### Analysis")
+                    st.info(f"Query Category: {analysis.category}")
+                    st.progress(
+                        analysis.complexity_score,
+                        text=f"Complexity Score: {analysis.complexity_score:.2f}"
+                    )
+                    
+                    # Display antipatterns
+                    if analysis.antipatterns:
+                        st.warning("Antipatterns Detected:")
+                        for pattern in analysis.antipatterns:
+                            st.write(f"- {pattern}")
+                    
+                    # Display suggestions
+                    if analysis.suggestions:
+                        st.info("Optimization Suggestions:")
+                        for suggestion in analysis.suggestions:
+                            st.write(f"- {suggestion}")
+                    
+                    # Display optimized query
+                    if analysis.optimized_query:
+                        st.success("Query Optimization Results")
+                        display_query_comparison(
+                            result["original_query"],
+                            analysis.optimized_query
+                        )
+            
+            # Export results button
+            if st.button("Export Analysis Report"):
+                report = []
+                for result in st.session_state.batch_results:
+                    analysis = result["analysis"]
+                    report.append({
+                        "filename": result["filename"],
+                        "category": analysis.category,
+                        "complexity_score": analysis.complexity_score,
+                        "antipatterns": analysis.antipatterns,
+                        "suggestions": analysis.suggestions,
+                        "original_query": result["original_query"],
+                        "optimized_query": analysis.optimized_query
+                    })
+                
+                # Convert to DataFrame for easy export
+                df = pd.DataFrame(report)
+                
+                # Create a download button
+                st.download_button(
+                    "Download Report (CSV)",
+                    df.to_csv(index=False).encode('utf-8'),
+                    "snowflake_optimization_report.csv",
+                    "text/csv",
+                    key='download-csv'
+                )
+    
+    # Display analysis results (for Direct Input and File Upload modes)
+    if input_method != "Batch Analysis" and st.session_state.analysis_results:
         print("\n=== Displaying Analysis Results ===")
         st.subheader("Analysis Results")
         
