@@ -216,21 +216,41 @@ def highlight_sql(text: str) -> str:
 
 def display_query_comparison(original: str, optimized: str):
     """Display a side-by-side comparison of original and optimized queries."""
+    print("\n=== Starting Query Comparison Display ===")
+    print(f"Original query length: {len(original) if original else 0}")
+    print(f"Optimized query length: {len(optimized) if optimized else 0}")
+    
+    if not original or not optimized:
+        print("Missing query for comparison!")
+        print(f"Original exists: {bool(original)}")
+        print(f"Optimized exists: {bool(optimized)}")
+        return
+    
     st.markdown("### Query Comparison")
+    print("Added comparison header")
     
     # Create columns for side-by-side view
     col1, col2 = st.columns(2)
+    print("Created columns for side-by-side view")
     
     with col1:
         st.markdown("**Original Query**")
-        st.code(format_sql(original), language="sql")
+        formatted_original = format_sql(original)
+        print(f"Formatted original query, length: {len(formatted_original)}")
+        st.code(formatted_original, language="sql")
+        print("Displayed original query")
         
     with col2:
         st.markdown("**Optimized Query**")
-        st.code(format_sql(optimized), language="sql")
+        formatted_optimized = format_sql(optimized)
+        print(f"Formatted optimized query, length: {len(formatted_optimized)}")
+        st.code(formatted_optimized, language="sql")
+        print("Displayed optimized query")
     
-    # Show diff below instead of in expander
+    # Show diff below
     st.markdown("### Changes")
+    print("Added changes header")
+    
     st.markdown("""
     <style>
     .diff-legend {
@@ -252,9 +272,18 @@ def display_query_comparison(original: str, optimized: str):
         <span><span style="color: #f85149">-</span> Removed</span>
     </div>
     """, unsafe_allow_html=True)
+    print("Added diff legend")
     
-    diff_html = create_query_diff(original, optimized)
-    st.markdown(diff_html, unsafe_allow_html=True)
+    try:
+        diff_html = create_query_diff(original, optimized)
+        print(f"Created diff HTML, length: {len(diff_html)}")
+        st.markdown(diff_html, unsafe_allow_html=True)
+        print("Displayed diff view")
+    except Exception as e:
+        print(f"Failed to create or display diff: {str(e)}")
+        st.error("Failed to display query differences")
+    
+    print("Completed query comparison display")
 
 def render_query_history_view(collector: Optional[QueryMetricsCollector], analyzer: Optional[QueryAnalyzer]):
     """Render the query history analysis view.
@@ -385,32 +414,62 @@ def render_query_history_view(collector: Optional[QueryMetricsCollector], analyz
             # Display optimized query
             if st.session_state.analysis_results.optimized_query:
                 logging.info("Optimized query generated")
-                st.success("Optimized Query:")
-                formatted_query = format_sql(st.session_state.analysis_results.optimized_query)
-                st.code(formatted_query, language="sql")
+                st.success("Query Optimization Results")
+                display_query_comparison(
+                    st.session_state.formatted_query,
+                    st.session_state.analysis_results.optimized_query
+                )
                 if st.button("Copy Optimized Query"):
-                    st.session_state.clipboard = formatted_query
+                    st.session_state.clipboard = format_sql(st.session_state.analysis_results.optimized_query)
                     logging.debug("Optimized query copied to clipboard")
                     st.success("Query copied to clipboard!")
 
 
 def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
-    """Render the manual query analysis view.
-
-    Args:
-        analyzer: QueryAnalyzer instance
-    """
+    """Render the manual query analysis view."""
+    print("\n=== Starting Manual Analysis View ===")
     st.header("Manual Query Analysis")
     
-    # Initialize session state for formatted query
+    # Initialize session state variables
     if "formatted_query" not in st.session_state:
         st.session_state.formatted_query = ""
+        print("Initialized formatted_query in session state")
+    if "analysis_results" not in st.session_state:
+        st.session_state.analysis_results = None
+        print("Initialized analysis_results in session state")
+    if "selected_query" not in st.session_state:
+        st.session_state.selected_query = None
+        print("Initialized selected_query in session state")
+    
+    def analyze_query_callback():
+        """Callback function for query analysis."""
+        print("\n=== Analyze Query Callback Triggered ===")
+        if st.session_state.formatted_query and analyzer:
+            print(f"Query to analyze (length): {len(st.session_state.formatted_query)}")
+            try:
+                # Store the query being analyzed
+                st.session_state.selected_query = st.session_state.formatted_query
+                print(f"Stored query in selected_query (length): {len(st.session_state.selected_query)}")
+                
+                st.session_state.analysis_results = analyzer.analyze_query(
+                    st.session_state.selected_query,
+                    schema_info=st.session_state.schema_info if "schema_info" in st.session_state else None
+                )
+                print("Analysis completed")
+                if st.session_state.analysis_results:
+                    print(f"Has optimized query: {st.session_state.analysis_results.optimized_query is not None}")
+                    if st.session_state.analysis_results.optimized_query:
+                        print(f"Optimized query length: {len(st.session_state.analysis_results.optimized_query)}")
+            except Exception as e:
+                print(f"Analysis failed: {str(e)}")
+                st.error(f"Analysis failed: {str(e)}")
     
     # Query input methods
     input_method = st.radio(
         "Choose input method",
         ["Direct Input", "File Upload", "Batch Analysis"]
     )
+    print(f"Selected input method: {input_method}")
     
     if input_method == "Direct Input":
         st.markdown("### Enter SQL Query")
@@ -419,7 +478,7 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
         if st.button("Format Query"):
             if st.session_state.formatted_query:
                 st.session_state.formatted_query = format_sql(st.session_state.formatted_query)
-                logging.debug("Query formatted successfully")
+                logging.debug("Query formatted")
         
         # Text area for SQL input
         query = st.text_area(
@@ -428,14 +487,16 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
             height=200,
             help="Paste your SQL query here for analysis",
             key="sql_input",
-            on_change=lambda: setattr(st.session_state, 'formatted_query', st.session_state.sql_input)
+            on_change=lambda: setattr(st.session_state, "formatted_query", st.session_state.sql_input)
         )
+        print(f"Query input received, length: {len(query) if query else 0}")
         
         # Display formatted query with syntax highlighting
         if query:
             st.markdown("### Preview")
             st.code(query, language="sql")
-        
+            print("Query preview displayed")
+
         # Optional schema information
         if st.checkbox("Add table schema information"):
             schema_col1, schema_col2 = st.columns([1, 1])
@@ -457,85 +518,18 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
                     columns=columns,
                     row_count=row_count
                 )
-                logging.debug(f"Schema info updated - Table: {table_name}, Columns: {len(columns)}")
+                logging.debug("Schema info added to session state")
             except json.JSONDecodeError:
-                logging.error("Invalid JSON format provided for columns")
                 st.error("Invalid JSON format for columns")
                 st.session_state.schema_info = None
+                logging.error("Invalid JSON format for schema columns")
         
-        if st.button("Analyze"):
-            if query and analyzer:
-                logging.info("Starting manual query analysis")
-                with st.spinner("Analyzing query..."):
-                    try:
-                        st.session_state.analysis_results = analyzer.analyze_query(
-                            query,
-                            schema_info=st.session_state.schema_info
-                        )
-                        logging.info("Manual query analysis completed successfully")
-                    except Exception as e:
-                        logging.error(f"Manual query analysis failed: {str(e)}")
-                        st.error(f"Analysis failed: {str(e)}")
-                    
-    elif input_method == "File Upload":
-        uploaded_file = st.file_uploader("Upload SQL file", type=["sql"])
-        if uploaded_file and analyzer:
-            try:
-                query = uploaded_file.getvalue().decode()
-                st.markdown("### SQL Query")
-                formatted_query = format_sql(query)
-                st.code(formatted_query, language="sql")
-                logging.info(f"SQL file uploaded successfully: {uploaded_file.name}")
-                
-                if st.button("Analyze"):
-                    logging.info("Starting uploaded file analysis")
-                    with st.spinner("Analyzing query..."):
-                        try:
-                            st.session_state.analysis_results = analyzer.analyze_query(formatted_query)
-                            logging.info("File analysis completed successfully")
-                        except Exception as e:
-                            logging.error(f"File analysis failed: {str(e)}")
-                            st.error(f"Analysis failed: {str(e)}")
-            except Exception as e:
-                logging.error(f"Failed to read uploaded file: {str(e)}")
-                st.error(f"Failed to read file: {str(e)}")
-                    
-    else:  # Batch Analysis
-        uploaded_files = st.file_uploader(
-            "Upload SQL files",
-            type=["sql"],
-            accept_multiple_files=True
-        )
-        
-        if uploaded_files and analyzer:
-            if st.button("Analyze All"):
-                results = []
-                progress_bar = st.progress(0)
-                logging.info(f"Starting batch analysis of {len(uploaded_files)} files")
-                
-                for i, file in enumerate(uploaded_files):
-                    try:
-                        query = file.getvalue().decode()
-                        st.markdown(f"### Query from {file.name}")
-                        formatted_query = format_sql(query)
-                        st.code(formatted_query, language="sql")
-                        
-                        analysis = analyzer.analyze_query(formatted_query)
-                        results.append({
-                            "filename": file.name,
-                            "analysis": analysis
-                        })
-                        progress_bar.progress((i + 1) / len(uploaded_files))
-                        logging.info(f"Analyzed file {i+1}/{len(uploaded_files)}: {file.name}")
-                    except Exception as e:
-                        logging.error(f"Failed to analyze {file.name}: {str(e)}")
-                        st.error(f"Failed to analyze {file.name}: {str(e)}")
-                
-                st.session_state.manual_queries = results
-                logging.info("Batch analysis completed")
+        analyze_button = st.button("Analyze", on_click=analyze_query_callback)
+        print(f"Analyze button clicked: {analyze_button}")
     
     # Display analysis results
     if st.session_state.analysis_results:
+        print("\n=== Displaying Analysis Results ===")
         st.subheader("Analysis Results")
         
         # Display query category and complexity
@@ -544,51 +538,56 @@ def render_manual_analysis_view(analyzer: Optional[QueryAnalyzer]):
             st.session_state.analysis_results.complexity_score,
             text=f"Complexity Score: {st.session_state.analysis_results.complexity_score:.2f}"
         )
+        print("Displayed category and complexity")
         
         # Display antipatterns
         if st.session_state.analysis_results.antipatterns:
             st.warning("Antipatterns Detected:")
             for pattern in st.session_state.analysis_results.antipatterns:
                 st.write(f"- {pattern}")
+            print(f"Displayed {len(st.session_state.analysis_results.antipatterns)} antipatterns")
         
-        # Display suggestions
+        # Display all suggestions
+        all_suggestions = []
         if st.session_state.analysis_results.suggestions:
+            all_suggestions.extend(st.session_state.analysis_results.suggestions)
+        if st.session_state.analysis_results.materialization_suggestions:
+            all_suggestions.extend(st.session_state.analysis_results.materialization_suggestions)
+        if st.session_state.analysis_results.index_suggestions:
+            all_suggestions.extend(st.session_state.analysis_results.index_suggestions)
+        
+        if all_suggestions:
             st.info("Optimization Suggestions:")
-            for suggestion in st.session_state.analysis_results.suggestions:
+            for suggestion in all_suggestions:
                 st.write(f"- {suggestion}")
+            print(f"Displayed {len(all_suggestions)} suggestions")
         
         # Display optimized query
+        print("\n=== Query Comparison Section ===")
+        print(f"Has analysis results: {st.session_state.analysis_results is not None}")
+        print(f"Has optimized query: {st.session_state.analysis_results.optimized_query is not None}")
+        print(f"Has selected query: {st.session_state.selected_query is not None}")
+        
         if st.session_state.analysis_results.optimized_query:
+            print("\nAttempting to display query comparison")
+            print(f"Original query length: {len(st.session_state.selected_query)}")
+            print(f"Optimized query length: {len(st.session_state.analysis_results.optimized_query)}")
+            
             st.success("Query Optimization Results")
             display_query_comparison(
-                query,
+                st.session_state.selected_query,
                 st.session_state.analysis_results.optimized_query
             )
+            print("Query comparison displayed")
+            
             if st.button("Copy Optimized Query"):
                 st.session_state.clipboard = format_sql(st.session_state.analysis_results.optimized_query)
-                logging.debug("Optimized query copied to clipboard")
                 st.success("Query copied to clipboard!")
-    
-    # Display batch analysis results
-    if st.session_state.manual_queries:
-        st.subheader("Batch Analysis Results")
-        for result in st.session_state.manual_queries:
-            with st.expander(f"Results for {result['filename']}"):
-                st.info(f"Query Category: {result['analysis'].category}")
-                st.progress(
-                    result['analysis'].complexity_score,
-                    text=f"Complexity Score: {result['analysis'].complexity_score:.2f}"
-                )
-                
-                if result['analysis'].antipatterns:
-                    st.warning("Antipatterns:")
-                    for pattern in result['analysis'].antipatterns:
-                        st.write(f"- {pattern}")
-                
-                if result['analysis'].optimized_query:
-                    st.success("Optimized Query:")
-                    st.code(format_sql(result['analysis'].optimized_query), language="sql")
-                    logging.debug(f"Displayed results for {result['filename']}")
+                print("Optimized query copied to clipboard")
+        else:
+            print("No optimized query available for display")
+
+    print("Completed render_manual_analysis_view")
 
 
 def render_advanced_optimization_view(analyzer: QueryAnalyzer):

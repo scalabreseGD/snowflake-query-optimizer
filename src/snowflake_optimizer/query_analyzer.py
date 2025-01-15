@@ -111,7 +111,7 @@ class QueryAnalyzer:
         )
 
     def _parse_and_validate(self, query: str) -> bool:
-        """Validate SQL query syntax.
+        """Validate SQL query syntax and attempt repair if needed.
 
         Args:
             query: SQL query string
@@ -120,10 +120,67 @@ class QueryAnalyzer:
             bool indicating if query is valid
         """
         try:
+            # First attempt: Basic parsing
             parsed = parse_one(query)
             return True
+        except Exception as e:
+            try:
+                # Clean and normalize the query
+                cleaned_query = sqlparse.format(
+                    query,
+                    keyword_case='upper',
+                    identifier_case='lower',
+                    strip_comments=True,
+                    reindent=True
+                )
+                
+                # Second attempt: Parse cleaned query
+                parsed = parse_one(cleaned_query)
+                return True
+            except Exception as parse_error:
+                return False
+
+    def _repair_query(self, query: str, error_message: str = None) -> Optional[str]:
+        """Attempt to repair an invalid SQL query using LLM.
+        
+        Args:
+            query: The invalid SQL query
+            error_message: Optional error message from parser
+            
+        Returns:
+            Repaired query if successful, None otherwise
+        """
+        repair_prompt = ChatPromptTemplate.from_template(
+            """You are a SQL repair expert. The following query is invalid:
+            {query}
+            
+            Error message: {error}
+            
+            Please fix the syntax while preserving the same logic.
+            Return only valid SQL enclosed in ```sql ... ```
+            Do not include any other text in your response."""
+        )
+        
+        try:
+            repair_response = self.llm.invoke(
+                repair_prompt.format_messages(
+                    query=query,
+                    error=error_message or "Syntax error detected"
+                )
+            )
+            
+            # Extract SQL from response
+            response_text = repair_response.content
+            if "```sql" in response_text and "```" in response_text:
+                sql_block = response_text.split("```sql")[1].split("```")[0].strip()
+                
+                # Validate repaired query
+                if self._parse_and_validate(sql_block):
+                    return sql_block
+                    
+            return None
         except Exception:
-            return False
+            return None
 
     def _identify_antipatterns(self, query: str) -> List[str]:
         """Identify common SQL antipatterns.
@@ -320,6 +377,195 @@ class QueryAnalyzer:
             
         return suggestions
 
+    def _analyze_query_structure(self, query: str) -> List[str]:
+        """Analyze query structure and suggest improvements without generating code.
+        
+        Args:
+            query: SQL query string
+            
+        Returns:
+            List of suggested improvements
+        """
+        analysis_prompt = ChatPromptTemplate.from_template(
+            """Analyze this SQL query and suggest improvements.
+            Focus on:
+            1. Join optimizations
+            2. Filter placement
+            3. Projection optimization
+            4. Snowflake-specific features
+            
+            Return only bullet points of suggested changes.
+            Do not generate any SQL code.
+            
+            Query to analyze: {query}"""
+        )
+        
+        try:
+            analysis_response = self.llm.invoke(
+                analysis_prompt.format_messages(query=query)
+            )
+            
+            # Extract suggestions from response
+            suggestions = []
+            for line in analysis_response.content.split('\n'):
+                if line.strip().startswith('- '):
+                    suggestions.append(line.strip()[2:])
+            return suggestions
+        except Exception:
+            return []
+
+    def _validate_schema_references(self, query: str, schema_info: Optional[SchemaInfo]) -> Tuple[bool, Optional[str]]:
+        """Validate that query references only existing tables and columns.
+        
+        Args:
+            query: SQL query string
+            schema_info: Optional schema information
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not schema_info:
+            return True, None
+        
+        try:
+            # Parse query to extract table and column references
+            parsed = parse_one(query)
+            
+            # Extract table references
+            table_refs = set()
+            column_refs = set()
+            
+            def visit(node):
+                if isinstance(node, exp.Table):
+                    table_refs.add(node.name)
+                elif isinstance(node, exp.Column):
+                    if node.table:
+                        column_refs.add(f"{node.table}.{node.name}")
+                    else:
+                        column_refs.add(node.name)
+                for child in node.args:
+                    visit(child)
+                
+            visit(parsed)
+            
+            # Validate table references
+            if schema_info.table_name not in table_refs:
+                return False, f"Query references non-existent table: {table_refs - {schema_info.table_name}}"
+            
+            # Get valid column names
+            valid_columns = {col["name"] for col in schema_info.columns}
+            
+            # Validate column references
+            invalid_columns = set()
+            for col_ref in column_refs:
+                if "." in col_ref:
+                    table, col = col_ref.split(".")
+                    if table == schema_info.table_name and col not in valid_columns:
+                        invalid_columns.add(col)
+                elif col_ref not in valid_columns:
+                    invalid_columns.add(col_ref)
+                
+            if invalid_columns:
+                return False, f"Query references non-existent columns: {invalid_columns}"
+            
+            return True, None
+        except Exception as e:
+            return False, f"Schema validation failed: {str(e)}"
+
+    def _generate_optimized_query(self, query: str, improvements: List[str], schema_info: Optional[SchemaInfo] = None) -> Optional[str]:
+        """Generate optimized query based on suggested improvements.
+        
+        Args:
+            query: Original SQL query
+            improvements: List of suggested improvements
+            schema_info: Optional schema information
+            
+        Returns:
+            Optimized query if successful, None otherwise
+        """
+        # Add schema information to the prompt if available
+        schema_context = ""
+        if schema_info:
+            schema_context = f"""
+            Table: {schema_info.table_name}
+            Columns: {', '.join(col['name'] for col in schema_info.columns)}
+            """
+        
+        # Filter out infrastructure-level suggestions
+        query_level_improvements = [
+            imp for imp in improvements
+            if not any(keyword in imp.lower() for keyword in [
+                "cluster", "materiali", "cache", "index", "partition"
+            ])
+        ]
+        
+        # If no query-level improvements, add a default one
+        if not query_level_improvements:
+            query_level_improvements = ["Optimize query structure and performance while maintaining identical results"]
+        
+        generation_prompt = ChatPromptTemplate.from_template(
+            """You are an expert SQL optimizer specializing in Snowflake.
+            Your task is to rewrite the provided SQL query to be more efficient while maintaining identical results.
+            
+            Focus on query-level optimizations such as:
+            1. Proper join order and type
+            2. Efficient filtering and predicate placement
+            3. Minimal projection (SELECT only needed columns)
+            4. Subquery optimization
+            5. Proper use of window functions
+            6. Efficient aggregation strategies
+            
+            Apply these specific improvements:
+            {improvements}
+            
+            {schema_context}
+            
+            Original query:
+            {query}
+            
+            Return only the optimized SQL query enclosed in ```sql ... ```
+            The query must be syntactically valid Snowflake SQL.
+            Only reference existing tables and columns.
+            Do not include any other text.
+            Do not add comments or explanations.
+            The optimized query must return exactly the same results as the original."""
+        )
+
+        try:
+            generation_response = self.llm.invoke(
+                generation_prompt.format_messages(
+                    query=query,
+                    improvements="\n".join(f"- {imp}" for imp in query_level_improvements),
+                    schema_context=schema_context
+                )
+            )
+            
+            # Extract and validate optimized query
+            response_text = generation_response.content
+            if "```sql" in response_text and "```" in response_text:
+                sql_block = response_text.split("```sql")[1].split("```")[0].strip()
+                
+                # Validate syntax
+                if not self._parse_and_validate(sql_block):
+                    return None
+                    
+                # Validate schema references
+                is_valid, error = self._validate_schema_references(sql_block, schema_info)
+                if not is_valid:
+                    # Try repair with schema error
+                    repaired = self._repair_query(sql_block, error)
+                    if repaired and self._parse_and_validate(repaired):
+                        is_valid, error = self._validate_schema_references(repaired, schema_info)
+                        if is_valid:
+                            return repaired
+                    return None
+                    
+                return sql_block
+                
+            return None
+        except Exception:
+            return None
+
     def analyze_query(
         self,
         query: str,
@@ -335,15 +581,38 @@ class QueryAnalyzer:
 
         Returns:
             QueryAnalysis object containing analysis results
-        """
-        # Validate query syntax
-        if not self._parse_and_validate(query):
-            raise ValueError("Invalid SQL query syntax")
-            
-        # Identify basic antipatterns
-        antipatterns = self._identify_antipatterns(query)
         
-        # Calculate complexity score
+        Raises:
+            ValueError: If query syntax is invalid and cannot be repaired
+        """
+        # Validate query syntax with repair attempts
+        if not self._parse_and_validate(query):
+            repaired_query = self._repair_query(query)
+            if repaired_query:
+                query = repaired_query
+            else:
+                raise ValueError("Invalid SQL query syntax and repair failed")
+        
+        # Validate schema references in original query
+        if schema_info:
+            is_valid, error = self._validate_schema_references(query, schema_info)
+            if not is_valid:
+                raise ValueError(f"Invalid schema references in query: {error}")
+        
+        # Two-step optimization process
+        # Step 1: Analyze and suggest improvements
+        suggested_improvements = self._analyze_query_structure(query)
+        
+        # Step 2: Generate optimized query based on improvements
+        # Always attempt to generate an optimized query
+        optimized_query = self._generate_optimized_query(
+            query,
+            suggested_improvements if suggested_improvements else ["Optimize query structure and performance"],
+            schema_info
+        )
+        
+        # Get other analysis components
+        antipatterns = self._identify_antipatterns(query)
         complexity_score = self._calculate_complexity_score(query)
         
         # Get query category
@@ -352,11 +621,9 @@ class QueryAnalyzer:
         )
         
         try:
-            # Clean and parse the response
             response_text = category_response.content.strip()
             category_data = json.loads(response_text)
             category_name = category_data.get("category", "Unknown")
-            # Ensure exact match with enum values
             if category_name in [c.value for c in QueryCategory]:
                 category = QueryCategory(category_name)
             else:
@@ -364,89 +631,30 @@ class QueryAnalyzer:
         except (json.JSONDecodeError, ValueError, KeyError):
             category = QueryCategory.UNKNOWN
         
-        # Get advanced Snowflake-specific suggestions
+        # Get Snowflake-specific suggestions
         clustering_suggestions = self._suggest_clustering_keys(query, schema_info)
         materialization_suggestions = self._suggest_materialized_views(query, schema_info)
         search_suggestions = self._suggest_search_optimization(query)
         caching_suggestions = self._suggest_caching_strategy(query)
         
-        # Get LLM analysis with enhanced context
-        analysis_template_with_context = self.analysis_template.format_messages(
-            query=query,
-            context=f"""Consider Snowflake-specific features:
-            - Clustering keys
-            - Materialized views
-            - Search optimization
-            - Query result caching
-            - Micro-partitions
-            - Zero-copy cloning
-            - Time travel
-            """
+        # Combine all suggestions
+        all_suggestions = (
+            suggested_improvements +
+            clustering_suggestions +
+            materialization_suggestions +
+            search_suggestions +
+            caching_suggestions
         )
-        analysis_response = self.llm.invoke(analysis_template_with_context)
-        
-        # Get optimized query with Snowflake-specific optimizations
-        optimization_template_with_context = self.optimization_template.format_messages(
-            query=query,
-            context="""Use Snowflake-specific features:
-            - CLUSTER BY for optimal data organization
-            - Materialized views for complex aggregations
-            - Search optimization for text searches
-            - Result cache for deterministic queries
-            - Micro-partitioning for efficient pruning
-            """
-        )
-        optimization_response = self.llm.invoke(optimization_template_with_context)
-        
-        # Extract optimized query and suggestions
-        suggestions = []
-        optimized_query = None
-        confidence_score = 0.8
-        
-        # Parse LLM responses and extract suggestions
-        for line in analysis_response.content.split('\n'):
-            if line.strip().startswith('- '):
-                suggestions.append(line.strip()[2:])
-        
-        # Add advanced Snowflake-specific suggestions
-        suggestions.extend(clustering_suggestions)
-        suggestions.extend(materialization_suggestions)
-        suggestions.extend(search_suggestions)
-        suggestions.extend(caching_suggestions)
-        
-        # Extract optimized query from the response
-        response_lines = optimization_response.content.split('\n')
-        in_sql_block = False
-        sql_lines = []
-        
-        for line in response_lines:
-            if '```sql' in line:
-                in_sql_block = True
-                continue
-            elif '```' in line and in_sql_block:
-                in_sql_block = False
-                break
-            elif in_sql_block:
-                sql_lines.append(line)
-        
-        if sql_lines:
-            optimized_query = '\n'.join(sql_lines).strip()
-            # Validate optimized query
-            if not self._parse_and_validate(optimized_query):
-                optimized_query = None
-        
-        # Get index suggestions if schema info is provided
-        index_suggestions = self._suggest_indexes(query, schema_info) if schema_info else []
         
         return QueryAnalysis(
             original_query=query,
             optimized_query=optimized_query,
             antipatterns=antipatterns,
-            suggestions=suggestions,
-            confidence_score=confidence_score,
+            suggestions=all_suggestions,
+            confidence_score=0.8 if optimized_query else 0.5,
             category=category,
             complexity_score=complexity_score,
             estimated_cost=None,
             materialization_suggestions=materialization_suggestions,
-            index_suggestions=index_suggestions
+            index_suggestions=self._suggest_indexes(query, schema_info)
         ) 
