@@ -8,6 +8,8 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.prompts import ChatPromptTemplate
 import sqlparse
 from sqlglot import parse_one, exp
+from pydantic import BaseModel, Field
+from anthropic import Anthropic
 
 
 class QueryCategory(str, Enum):
@@ -48,73 +50,133 @@ class QueryAnalysis:
     index_suggestions: List[str] = None
 
 
+class AntiPattern(BaseModel):
+    """Represents a SQL antipattern with its details."""
+    code: str = Field(..., description="Antipattern code (e.g., FTS001)")
+    name: str = Field(..., description="Name of the antipattern")
+    category: str = Field(..., description="Category (PERFORMANCE, DATA_QUALITY, COMPLEXITY, BEST_PRACTICE, SECURITY, MAINTAINABILITY)")
+    description: str = Field(..., description="Detailed description of the antipattern")
+    impact: str = Field(..., description="Impact level (High, Medium, Low)")
+    location: str = Field(..., description="Location in the query where antipattern occurs")
+    suggestion: str = Field(..., description="Suggestion to fix the antipattern")
+
+
+class QueryAnalysisResponse(BaseModel):
+    """Structured response for query analysis."""
+    antipatterns: List[AntiPattern] = Field(default_factory=list, description="List of antipatterns found in the query")
+    suggestions: List[str] = Field(default_factory=list, description="List of optimization suggestions")
+    complexity_score: float = Field(..., ge=0, le=1, description="Query complexity score between 0 and 1")
+
+
+class QueryCategoryResponse(BaseModel):
+    """Structured response for query categorization."""
+    category: str = Field(..., description="Query category name")
+    explanation: str = Field(..., description="Explanation for the categorization")
+
+
 class QueryAnalyzer:
     """Analyzes and optimizes SQL queries using LLMs."""
 
     def __init__(self, anthropic_api_key: str):
-        """Initialize the analyzer with API credentials.
-
-        Args:
-            anthropic_api_key: API key for Anthropic's Claude
-        """
-        self.llm = ChatAnthropic(
-            anthropic_api_key=anthropic_api_key,
-            model="claude-3-5-sonnet-20240620"
-        )
+        """Initialize the analyzer with API credentials."""
+        # Initialize Anthropic client
+        self.client = Anthropic(api_key=anthropic_api_key)
+        
+        # System message for consistent JSON responses
+        self.system_message = {
+            "role": "system",
+            "content": """You are an expert SQL analyzer and optimizer. You must:
+1. Always respond with valid JSON only
+2. Never include any explanatory text outside the JSON
+3. Follow the exact format shown in examples
+4. Include all required fields
+5. Use only the specified antipattern codes"""
+        }
+        
+        # Example query and response for categorization
+        self.category_example = {
+            "role": "assistant",
+            "content": """{
+    "category": "Data Manipulation",
+    "explanation": "This query retrieves and filters user records based on a date condition"
+}"""
+        }
+        
+        # Example query and response for analysis
+        self.analysis_example = {
+            "role": "assistant",
+            "content": """{
+    "antipatterns": [
+        {
+            "code": "FTS001",
+            "name": "Full Table Scan",
+            "category": "PERFORMANCE",
+            "description": "Query uses SELECT * which retrieves unnecessary columns",
+            "impact": "High",
+            "location": "SELECT clause",
+            "suggestion": "Specify only required columns in SELECT clause"
+        }
+    ],
+    "suggestions": [
+        "Replace SELECT * with specific column names",
+        "Add index on created_at for better filtering"
+    ],
+    "complexity_score": 0.6
+}"""
+        }
         
         # Template for query categorization
-        self.categorization_template = ChatPromptTemplate.from_template(
-            """You are an expert SQL query analyzer. Your task is to categorize SQL queries.
-            Return ONLY a valid JSON object with this structure:
-            {{"category": "CATEGORY_NAME", "explanation": "EXPLANATION"}}
-            
-            Valid categories are:
-            - "Data Manipulation"
-            - "Reporting"
-            - "ETL"
-            - "Analytics"
-            
-            Do not include any other text in your response.
-            
-            Query to analyze: {query}"""
-        )
+        self.categorization_template = f"""Analyze this SQL query and categorize it.
+Respond with a JSON object containing exactly these fields:
+- category: One of ["Data Manipulation", "Reporting", "ETL", "Analytics"]
+- explanation: Brief explanation of the categorization
+
+Example query:
+SELECT * FROM users WHERE created_at > '2024-01-01'
+
+Example response:
+{self.category_example["content"]}
+
+Query to analyze:
+{{query}}"""
         
         # Template for query analysis
-        self.analysis_template = ChatPromptTemplate.from_template(
-            """You are an expert SQL optimizer specializing in Snowflake. 
-            Analyze the provided SQL query for antipatterns and optimization opportunities.
-            Focus on:
-            1. Join optimizations
-            2. Filter optimizations
-            3. Projection optimizations
-            4. Materialization opportunities
-            5. Partitioning suggestions
-            
-            Provide specific, actionable recommendations.
-            
-            Query to analyze: {query}"""
-        )
-        
-        # Template for query optimization
-        self.optimization_template = ChatPromptTemplate.from_template(
-            """You are an expert SQL optimizer specializing in Snowflake.
-            Rewrite the provided SQL query to be more efficient while maintaining identical results.
-            Focus on:
-            1. Proper join order
-            2. Efficient filtering
-            3. Minimal projection
-            4. Proper use of Snowflake features
-            
-            Provide the optimized query and explain your changes.
-            
-            Query to optimize: {query}"""
-        )
+        self.analysis_template = f"""Analyze this SQL query for antipatterns and optimization opportunities.
+Respond with a JSON object containing exactly these fields:
+- antipatterns: Array of antipattern objects with fields:
+  - code: Antipattern code from the list below
+  - name: Name of the antipattern
+  - category: Category from list below
+  - description: Detailed description
+  - impact: "High", "Medium", or "Low"
+  - location: Where in query
+  - suggestion: How to fix
+- suggestions: Array of optimization suggestions
+- complexity_score: Number between 0 and 1
 
-    def _parse_and_validate(self, query: str) -> bool:
+Available antipattern codes:
+- PERFORMANCE: FTS001 (Full Table Scan), IJN001 (Inefficient Join), IDX001 (Missing Index), LDT001 (Large Data Transfer)
+- DATA_QUALITY: NUL001 (Null Handling), DTM001 (Date/Time Manipulation)
+- COMPLEXITY: NSQ001 (Nested Subquery), CJN001 (Complex Join)
+- BEST_PRACTICE: WCD001 (Weak Column Definition), ALS001 (Ambiguous Column Selection)
+- SECURITY: INJ001 (SQL Injection Risk), PRM001 (Permission Issues)
+- MAINTAINABILITY: CMT001 (Missing Comments), FMT001 (Poor Formatting)
+
+Example query:
+SELECT * FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.created_at > '2024-01-01'
+
+Example response:
+{self.analysis_example["content"]}
+
+Query to analyze:
+{{query}}"""
+
+    def _parse_and_validate(self, query: str, max_retries: int = 3) -> bool:
         """Validate SQL query syntax and attempt repair if needed.
 
         Args:
             query: SQL query string
+            max_retries: Maximum number of repair attempts
 
         Returns:
             bool indicating if query is valid
@@ -124,6 +186,9 @@ class QueryAnalyzer:
             parsed = parse_one(query)
             return True
         except Exception as e:
+            if max_retries <= 0:
+                return False
+                
             try:
                 # Clean and normalize the query
                 cleaned_query = sqlparse.format(
@@ -134,43 +199,70 @@ class QueryAnalyzer:
                     reindent=True
                 )
                 
-                # Second attempt: Parse cleaned query
-                parsed = parse_one(cleaned_query)
-                return True
-            except Exception as parse_error:
+                # Handle common issues
+                cleaned_query = cleaned_query.replace('\n', ' ').strip()
+                cleaned_query = ' '.join(cleaned_query.split())
+                
+                # Handle temporary tables (Snowflake specific)
+                if 'INTO #' in cleaned_query:
+                    cleaned_query = cleaned_query.replace('INTO #', 'INTO TEMP_')
+                
+                # Handle HAVING without GROUP BY
+                if 'HAVING' in cleaned_query.upper() and 'GROUP BY' not in cleaned_query.upper():
+                    cleaned_query = cleaned_query.replace('HAVING', 'WHERE')
+                
+                # Handle implicit joins
+                if ',' in cleaned_query and 'FROM' in cleaned_query.upper():
+                    parts = cleaned_query.split('FROM')
+                    if len(parts) == 2:
+                        select_part = parts[0]
+                        from_part = parts[1]
+                        if ',' in from_part and 'JOIN' not in from_part.upper():
+                            tables = [t.strip() for t in from_part.split(',')]
+                            joined_tables = tables[0]
+                            for i in range(1, len(tables)):
+                                joined_tables += f" CROSS JOIN {tables[i]}"
+                            cleaned_query = f"{select_part} FROM {joined_tables}"
+                
+                # Recursive attempt with cleaned query
+                return self._parse_and_validate(cleaned_query, max_retries - 1)
+            except Exception:
                 return False
 
     def _repair_query(self, query: str, error_message: str = None) -> Optional[str]:
-        """Attempt to repair an invalid SQL query using LLM.
+        """Attempt to repair an invalid SQL query using LLM."""
+        repair_prompt = """You are a SQL repair expert. The following query is invalid:
+        {query}
         
-        Args:
-            query: The invalid SQL query
-            error_message: Optional error message from parser
-            
-        Returns:
-            Repaired query if successful, None otherwise
-        """
-        repair_prompt = ChatPromptTemplate.from_template(
-            """You are a SQL repair expert. The following query is invalid:
-            {query}
-            
-            Error message: {error}
-            
-            Please fix the syntax while preserving the same logic.
-            Return only valid SQL enclosed in ```sql ... ```
-            Do not include any other text in your response."""
-        )
+        Error message: {error}
+        
+        Fix the syntax while preserving the same logic. Common issues to check:
+        1. Missing GROUP BY for aggregate functions
+        2. Improper HAVING clause usage
+        3. Invalid temporary table syntax
+        4. Implicit joins that should be explicit
+        5. Invalid function calls or data type conversions
+        6. Missing table aliases in complex queries
+        7. Invalid date/time operations
+        
+        Return only valid SQL enclosed in ```sql ... ```
+        Do not include any other text in your response."""
         
         try:
-            repair_response = self.llm.invoke(
-                repair_prompt.format_messages(
-                    query=query,
-                    error=error_message or "Syntax error detected"
-                )
+            repair_response = self.client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=2048,
+                messages=[{
+                    "role": "user",
+                    "content": repair_prompt.format(
+                        query=query,
+                        error=error_message or "Syntax error detected"
+                    )
+                }]
             )
             
             # Extract SQL from response
-            response_text = repair_response.content
+            response_text = repair_response.content[0].text
             if "```sql" in response_text and "```" in response_text:
                 sql_block = response_text.split("```sql")[1].split("```")[0].strip()
                 
@@ -473,16 +565,7 @@ class QueryAnalyzer:
             return False, f"Schema validation failed: {str(e)}"
 
     def _generate_optimized_query(self, query: str, improvements: List[str], schema_info: Optional[SchemaInfo] = None) -> Optional[str]:
-        """Generate optimized query based on suggested improvements.
-        
-        Args:
-            query: Original SQL query
-            improvements: List of suggested improvements
-            schema_info: Optional schema information
-            
-        Returns:
-            Optimized query if successful, None otherwise
-        """
+        """Generate optimized query based on suggested improvements."""
         # Add schema information to the prompt if available
         schema_context = ""
         if schema_info:
@@ -503,68 +586,351 @@ class QueryAnalyzer:
         if not query_level_improvements:
             query_level_improvements = ["Optimize query structure and performance while maintaining identical results"]
         
-        generation_prompt = ChatPromptTemplate.from_template(
-            """You are an expert SQL optimizer specializing in Snowflake.
-            Your task is to rewrite the provided SQL query to be more efficient while maintaining identical results.
-            
-            Focus on query-level optimizations such as:
-            1. Proper join order and type
-            2. Efficient filtering and predicate placement
-            3. Minimal projection (SELECT only needed columns)
-            4. Subquery optimization
-            5. Proper use of window functions
-            6. Efficient aggregation strategies
-            
-            Apply these specific improvements:
-            {improvements}
-            
-            {schema_context}
-            
-            Original query:
-            {query}
-            
-            Return only the optimized SQL query enclosed in ```sql ... ```
-            The query must be syntactically valid Snowflake SQL.
-            Only reference existing tables and columns.
-            Do not include any other text.
-            Do not add comments or explanations.
-            The optimized query must return exactly the same results as the original."""
-        )
+        generation_prompt = """You are an expert SQL optimizer specializing in Snowflake.
+        Your task is to rewrite the provided SQL query to be more efficient while maintaining identical results.
+        
+        Focus on query-level optimizations such as:
+        1. Proper join order and type
+        2. Efficient filtering and predicate placement
+        3. Minimal projection (SELECT only needed columns)
+        4. Subquery optimization
+        5. Proper use of window functions
+        6. Efficient aggregation strategies
+        
+        Apply these specific improvements:
+        {improvements}
+        
+        {schema_context}
+        
+        Original query:
+        {query}
+        
+        Return only the optimized SQL query enclosed in ```sql ... ```
+        The query must be syntactically valid Snowflake SQL.
+        Only reference existing tables and columns.
+        Do not include any other text.
+        Do not add comments or explanations.
+        The optimized query must return exactly the same results as the original."""
 
         try:
-            generation_response = self.llm.invoke(
-                generation_prompt.format_messages(
-                    query=query,
-                    improvements="\n".join(f"- {imp}" for imp in query_level_improvements),
-                    schema_context=schema_context
-                )
+            generation_response = self.client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=2048,
+                messages=[{
+                    "role": "user",
+                    "content": generation_prompt.format(
+                        query=query,
+                        improvements="\n".join(f"- {imp}" for imp in query_level_improvements),
+                        schema_context=schema_context
+                    )
+                }]
             )
             
             # Extract and validate optimized query
-            response_text = generation_response.content
+            response_text = generation_response.content[0].text
             if "```sql" in response_text and "```" in response_text:
                 sql_block = response_text.split("```sql")[1].split("```")[0].strip()
                 
-                # Validate syntax
-                if not self._parse_and_validate(sql_block):
+                # Validate optimized query with retries
+                if self._parse_and_validate(sql_block, max_retries=3):
+                    return sql_block
+                else:
+                    print("Failed to validate optimized query after retries")
                     return None
                     
-                # Validate schema references
-                is_valid, error = self._validate_schema_references(sql_block, schema_info)
-                if not is_valid:
-                    # Try repair with schema error
-                    repaired = self._repair_query(sql_block, error)
-                    if repaired and self._parse_and_validate(repaired):
-                        is_valid, error = self._validate_schema_references(repaired, schema_info)
-                        if is_valid:
-                            return repaired
-                    return None
-                    
-                return sql_block
+            return None
+        except Exception as e:
+            print(f"Error generating optimized query: {str(e)}")
+            return None
+
+    def _clean_json_response(self, response_text: str) -> str:
+        """Clean and normalize JSON response from LLM."""
+        try:
+            # Remove all whitespace and newlines
+            response_text = ''.join(response_text.split())
+            
+            # Find the first '{' and last '}'
+            start = response_text.find('{')
+            end = response_text.rfind('}')
+            
+            if start == -1 or end == -1:
+                print(f"No valid JSON object found in response: {response_text}")
+                raise ValueError("No JSON object found in response")
                 
-            return None
-        except Exception:
-            return None
+            # Extract just the JSON part
+            response_text = response_text[start:end + 1]
+            
+            # Fix common JSON formatting issues
+            response_text = response_text.replace("'", '"')
+            response_text = response_text.replace('}{', '},{')
+            response_text = response_text.replace('""', '"')
+            response_text = response_text.replace('\\"', '"')
+            
+            # Try to parse and re-serialize to ensure valid JSON
+            parsed = json.loads(response_text)
+            return json.dumps(parsed, separators=(',', ':'))
+                
+        except Exception as e:
+            print(f"Error cleaning JSON response: {str(e)}")
+            print(f"Original response: {response_text}")
+            # Return a minimal valid JSON
+            return json.dumps({
+                "antipatterns": [],
+                "suggestions": [],
+                "complexity_score": 0.5
+            }, separators=(',', ':'))
+
+    def _parse_category_response(self, response_text: str) -> dict:
+        """Parse category response into structured format."""
+        try:
+            lines = [line.strip() for line in response_text.split('\n') if line.strip()]
+            result = {}
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    result[key.strip().lower()] = value.strip()
+            return {
+                "category": result.get('category', 'Unknown'),
+                "explanation": result.get('explanation', '')
+            }
+        except Exception as e:
+            print(f"Error parsing category response: {str(e)}")
+            return {"category": "Unknown", "explanation": ""}
+
+    def _parse_analysis_response(self, response_text: str) -> dict:
+        """Parse analysis response into structured format."""
+        try:
+            print("\nParsing Analysis Response:")
+            print("=" * 80)
+            print("Sections split by '---':")
+            sections = response_text.split('---')
+            print(f"Number of sections: {len(sections)}")
+            for i, section in enumerate(sections):
+                print(f"\nSection {i}:")
+                print(section.strip())
+            
+            antipatterns = []
+            suggestions = []
+            complexity = 0.5
+
+            print("\nParsing antipatterns from first section:")
+            current_pattern = {}
+            for line in sections[0].split('\n'):
+                line = line.strip()
+                if line:
+                    print(f"Processing line: {line}")
+                if line and ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().lower()
+                    value = value.strip()
+                    print(f"Found key-value pair: {key} = {value}")
+                    
+                    if key == 'code' and current_pattern:
+                        print(f"Completing pattern: {current_pattern}")
+                        antipatterns.append(current_pattern)
+                        current_pattern = {}
+                    current_pattern[key] = value
+            if current_pattern:
+                print(f"Adding final pattern: {current_pattern}")
+                antipatterns.append(current_pattern)
+
+            print("\nParsing suggestions and complexity from remaining sections:")
+            if len(sections) > 1:
+                for line in sections[1].split('\n'):
+                    line = line.strip()
+                    print(f"Processing line: {line}")
+                    if line.startswith('SUGGESTION:'):
+                        suggestion = line.split(':', 1)[1].strip()
+                        print(f"Found suggestion: {suggestion}")
+                        suggestions.append(suggestion)
+                    elif line.startswith('COMPLEXITY:'):
+                        try:
+                            complexity = float(line.split(':', 1)[1].strip())
+                            print(f"Found complexity: {complexity}")
+                        except ValueError:
+                            print("Invalid complexity value")
+                            complexity = 0.5
+
+            result = {
+                "antipatterns": antipatterns,
+                "suggestions": suggestions,
+                "complexity_score": complexity
+            }
+            print("\nFinal parsed result:")
+            print(result)
+            return result
+            
+        except Exception as e:
+            print(f"\nError parsing analysis response: {str(e)}")
+            print(f"Original response text:\n{response_text}")
+            return {
+                "antipatterns": [],
+                "suggestions": [],
+                "complexity_score": 0.5
+            }
+
+    def _get_antipatterns(self, query: str) -> List[dict]:
+        """Get antipatterns using a focused prompt."""
+        antipattern_prompt = f"""Analyze this SQL query for antipatterns.
+For each antipattern found, provide the following information in plain text format:
+CODE: (use one from the list below)
+NAME: (name of the antipattern)
+DESCRIPTION: (brief description)
+IMPACT: (High, Medium, or Low)
+LOCATION: (where in query)
+SUGGESTION: (how to fix)
+
+Available codes:
+- PERFORMANCE: FTS001 (Full Table Scan), IJN001 (Inefficient Join)
+- DATA_QUALITY: NUL001 (Null Handling), DTM001 (Date/Time)
+- COMPLEXITY: NSQ001 (Nested Subquery), CJN001 (Complex Join)
+- BEST_PRACTICE: WCD001 (Weak Columns), ALS001 (Ambiguous Columns)
+
+Query to analyze:
+{query}"""
+
+        try:
+            response = self.client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1024,
+                system="You are an expert SQL analyzer. Provide detailed analysis in a clear, structured format.",
+                messages=[
+                    {"role": "user", "content": antipattern_prompt}
+                ]
+            )
+            
+            # Parse the response into structured format
+            antipatterns = []
+            current_pattern = {}
+            
+            for line in response.content[0].text.split('\n'):
+                line = line.strip()
+                if not line:
+                    if current_pattern:
+                        antipatterns.append(current_pattern)
+                        current_pattern = {}
+                    continue
+                    
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    key = key.strip().upper()
+                    value = value.strip()
+                    
+                    if key in ['CODE', 'NAME', 'DESCRIPTION', 'IMPACT', 'LOCATION', 'SUGGESTION']:
+                        current_pattern[key.lower()] = value
+            
+            if current_pattern:
+                antipatterns.append(current_pattern)
+                
+            return antipatterns
+            
+        except Exception as e:
+            print(f"Error getting antipatterns: {str(e)}")
+            return []
+
+    def _get_suggestions(self, query: str) -> List[str]:
+        """Get optimization suggestions using a focused prompt."""
+        suggestion_prompt = f"""Analyze this SQL query and suggest optimizations.
+Provide each suggestion on a new line starting with '- '.
+Focus on query structure, indexes, and Snowflake features.
+Keep each suggestion brief and actionable.
+
+Query to analyze:
+{query}"""
+
+        try:
+            response = self.client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1024,
+                system="You are an expert SQL optimizer. Provide clear, actionable suggestions.",
+                messages=[
+                    {"role": "user", "content": suggestion_prompt}
+                ]
+            )
+            
+            # Extract suggestions (lines starting with '- ')
+            suggestions = []
+            for line in response.content[0].text.split('\n'):
+                line = line.strip()
+                if line.startswith('- '):
+                    suggestions.append(line[2:])
+            return suggestions
+            
+        except Exception as e:
+            print(f"Error getting suggestions: {str(e)}")
+            return []
+
+    def _get_complexity(self, query: str) -> float:
+        """Get complexity score using a focused prompt."""
+        complexity_prompt = f"""Analyze this SQL query's complexity.
+Provide a single number between 0 and 1 representing the complexity.
+Consider: joins, subqueries, window functions, aggregations.
+Higher numbers indicate more complex queries.
+
+Query to analyze:
+{query}"""
+
+        try:
+            response = self.client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=256,
+                system="You are an expert SQL analyzer. Provide a single number between 0 and 1.",
+                messages=[
+                    {"role": "user", "content": complexity_prompt}
+                ]
+            )
+            
+            # Extract the first number found in the response
+            text = response.content[0].text
+            import re
+            numbers = re.findall(r'0\.\d+|\d+\.?\d*', text)
+            if numbers:
+                score = float(numbers[0])
+                return min(1.0, max(0.0, score))
+            return 0.5
+            
+        except Exception as e:
+            print(f"Error getting complexity: {str(e)}")
+            return 0.5
+
+    def _get_category(self, query: str) -> Tuple[QueryCategory, str]:
+        """Get query category using a focused prompt."""
+        category_prompt = f"""Analyze this SQL query and determine its category.
+Provide your response in this format:
+CATEGORY: (one of: Data Manipulation, Reporting, ETL, Analytics)
+EXPLANATION: (brief explanation of why)
+
+Query to analyze:
+{query}"""
+
+        try:
+            response = self.client.messages.create(
+                model="claude-3-5-sonnet-20241022",
+                max_tokens=1024,
+                system="You are an expert SQL analyzer. Categorize the query and explain why.",
+                messages=[
+                    {"role": "user", "content": category_prompt}
+                ]
+            )
+            
+            # Parse the response
+            category = QueryCategory.UNKNOWN
+            explanation = ""
+            
+            for line in response.content[0].text.split('\n'):
+                line = line.strip()
+                if line.startswith('CATEGORY:'):
+                    cat_str = line.split(':', 1)[1].strip()
+                    if cat_str in [c.value for c in QueryCategory]:
+                        category = QueryCategory(cat_str)
+                elif line.startswith('EXPLANATION:'):
+                    explanation = line.split(':', 1)[1].strip()
+            
+            return category, explanation
+            
+        except Exception as e:
+            print(f"Error getting category: {str(e)}")
+            return QueryCategory.UNKNOWN, ""
 
     def analyze_query(
         self,
@@ -572,79 +938,63 @@ class QueryAnalyzer:
         schema_info: Optional[SchemaInfo] = None,
         include_cost_estimate: bool = False
     ) -> QueryAnalysis:
-        """Analyze a SQL query for optimization opportunities.
-
-        Args:
-            query: SQL query string
-            schema_info: Optional schema information
-            include_cost_estimate: Whether to include cost estimation
-
-        Returns:
-            QueryAnalysis object containing analysis results
-        
-        Raises:
-            ValueError: If query syntax is invalid and cannot be repaired
-        """
-        # Validate query syntax with repair attempts
-        if not self._parse_and_validate(query):
-            repaired_query = self._repair_query(query)
-            if repaired_query:
-                query = repaired_query
-            else:
-                raise ValueError("Invalid SQL query syntax and repair failed")
-        
-        # Validate schema references in original query
-        if schema_info:
-            is_valid, error = self._validate_schema_references(query, schema_info)
-            if not is_valid:
-                raise ValueError(f"Invalid schema references in query: {error}")
-        
-        # Two-step optimization process
-        # Step 1: Analyze and suggest improvements
-        suggested_improvements = self._analyze_query_structure(query)
-        
-        # Step 2: Generate optimized query based on improvements
-        # Always attempt to generate an optimized query
-        optimized_query = self._generate_optimized_query(
-            query,
-            suggested_improvements if suggested_improvements else ["Optimize query structure and performance"],
-            schema_info
-        )
-        
-        # Get other analysis components
-        antipatterns = self._identify_antipatterns(query)
-        complexity_score = self._calculate_complexity_score(query)
-        
-        # Get query category
-        category_response = self.llm.invoke(
-            self.categorization_template.format_messages(query=query)
-        )
+        """Analyze a SQL query for optimization opportunities."""
+        # Initialize default values
+        antipatterns = []
+        suggestions = []
+        complexity_score = 0.5
+        category = QueryCategory.UNKNOWN
+        optimized_query = None
         
         try:
-            response_text = category_response.content.strip()
-            category_data = json.loads(response_text)
-            category_name = category_data.get("category", "Unknown")
-            if category_name in [c.value for c in QueryCategory]:
-                category = QueryCategory(category_name)
-            else:
-                category = QueryCategory.UNKNOWN
-        except (json.JSONDecodeError, ValueError, KeyError):
-            category = QueryCategory.UNKNOWN
-        
-        # Get Snowflake-specific suggestions
-        clustering_suggestions = self._suggest_clustering_keys(query, schema_info)
-        materialization_suggestions = self._suggest_materialized_views(query, schema_info)
-        search_suggestions = self._suggest_search_optimization(query)
-        caching_suggestions = self._suggest_caching_strategy(query)
-        
-        # Combine all suggestions
-        all_suggestions = (
-            suggested_improvements +
-            clustering_suggestions +
-            materialization_suggestions +
-            search_suggestions +
-            caching_suggestions
-        )
+            # Get antipatterns
+            antipattern_data = self._get_antipatterns(query)
+            antipatterns = [
+                f"{ap.get('code', 'UNKNOWN')}: {ap.get('name', '')} - {ap.get('description', '')} (Impact: {ap.get('impact', 'Unknown')})"
+                for ap in antipattern_data
+            ]
+            
+            # Get suggestions
+            suggestions = self._get_suggestions(query)
+            
+            # Get complexity score
+            complexity_score = self._get_complexity(query)
+            
+            # Get query category
+            category, category_explanation = self._get_category(query)
+            
+            # Generate optimized query with validation
+            optimized_query = self._generate_optimized_query(
+                query,
+                suggestions if suggestions else ["Optimize query structure and performance"],
+                schema_info
+            )
+            
+            # Get Snowflake-specific suggestions
+            try:
+                clustering_suggestions = self._suggest_clustering_keys(query, schema_info)
+                materialization_suggestions = self._suggest_materialized_views(query, schema_info)
+                search_suggestions = self._suggest_search_optimization(query)
+                caching_suggestions = self._suggest_caching_strategy(query)
+                
+                all_suggestions = (
+                    suggestions +
+                    clustering_suggestions +
+                    materialization_suggestions +
+                    search_suggestions +
+                    caching_suggestions
+                )
+            except Exception as e:
+                print(f"Error getting additional suggestions: {str(e)}")
+                all_suggestions = suggestions
+                materialization_suggestions = []
+            
+        except Exception as e:
+            print(f"Error in analysis: {str(e)}")
+            # Fall back to basic analysis
+            antipatterns = self._identify_antipatterns(query)
+            all_suggestions = []
+            materialization_suggestions = []
         
         return QueryAnalysis(
             original_query=query,
@@ -657,4 +1007,4 @@ class QueryAnalyzer:
             estimated_cost=None,
             materialization_suggestions=materialization_suggestions,
             index_suggestions=self._suggest_indexes(query, schema_info)
-        ) 
+        )

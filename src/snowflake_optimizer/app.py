@@ -64,6 +64,106 @@ if "manual_queries" not in st.session_state:
 if "schema_info" not in st.session_state:
     st.session_state.schema_info = None
 
+# Define SQL antipatterns with detailed categorization
+SQL_ANTIPATTERNS = {
+    'PERFORMANCE': {
+        'FTS001': {
+            'name': 'Full Table Scan',
+            'description': 'Query performs a full table scan without appropriate filtering',
+            'impact': 'High',
+            'detection': ['SELECT *', 'WHERE 1=1', 'no WHERE clause']
+        },
+        'IJN001': {
+            'name': 'Inefficient Join',
+            'description': 'Join conditions missing or using non-indexed columns',
+            'impact': 'High',
+            'detection': ['CROSS JOIN', 'cartesian product', 'missing JOIN condition']
+        },
+        'IDX001': {
+            'name': 'Missing Index',
+            'description': 'Frequently filtered or joined columns lack appropriate indexes',
+            'impact': 'High',
+            'detection': ['frequently filtered column', 'join key without index']
+        },
+        'LDT001': {
+            'name': 'Large Data Transfer',
+            'description': 'Query retrieves excessive data volume',
+            'impact': 'High',
+            'detection': ['SELECT *', 'large table without limit']
+        }
+    },
+    'DATA_QUALITY': {
+        'NUL001': {
+            'name': 'Unsafe Null Handling',
+            'description': 'Improper handling of NULL values in comparisons',
+            'impact': 'Medium',
+            'detection': ['IS NULL', 'IS NOT NULL', 'NULL comparison']
+        },
+        'DTM001': {
+            'name': 'Data Type Mismatch',
+            'description': 'Implicit data type conversions in comparisons',
+            'impact': 'Medium',
+            'detection': ['implicit conversion', 'type mismatch']
+        }
+    },
+    'COMPLEXITY': {
+        'NSQ001': {
+            'name': 'Nested Subquery',
+            'description': 'Deeply nested subqueries that could be simplified',
+            'impact': 'Medium',
+            'detection': ['multiple SELECT levels', 'nested subquery']
+        },
+        'CJN001': {
+            'name': 'Complex Join Chain',
+            'description': 'Long chain of joins that could be simplified',
+            'impact': 'Medium',
+            'detection': ['multiple joins', 'join chain']
+        }
+    },
+    'BEST_PRACTICE': {
+        'WCD001': {
+            'name': 'Wildcard Column Usage',
+            'description': 'Using SELECT * instead of specific columns',
+            'impact': 'Low',
+            'detection': ['SELECT *']
+        },
+        'ALS001': {
+            'name': 'Missing Table Alias',
+            'description': 'Tables or subqueries without clear aliases',
+            'impact': 'Low',
+            'detection': ['missing AS keyword', 'no table alias']
+        }
+    },
+    'SECURITY': {
+        'INJ001': {
+            'name': 'SQL Injection Risk',
+            'description': 'Potential SQL injection vulnerabilities',
+            'impact': 'High',
+            'detection': ['dynamic SQL', 'string concatenation']
+        },
+        'PRM001': {
+            'name': 'Missing Parameterization',
+            'description': 'Hard-coded values instead of parameters',
+            'impact': 'Medium',
+            'detection': ['literal values', 'hard-coded constants']
+        }
+    },
+    'MAINTAINABILITY': {
+        'CMT001': {
+            'name': 'Missing Comments',
+            'description': 'Complex logic without explanatory comments',
+            'impact': 'Low',
+            'detection': ['complex logic', 'no comments']
+        },
+        'FMT001': {
+            'name': 'Poor Formatting',
+            'description': 'Inconsistent or poor SQL formatting',
+            'impact': 'Low',
+            'detection': ['inconsistent indentation', 'poor formatting']
+        }
+    }
+}
+
 def format_sql(query: str) -> str:
     """Format SQL query for better readability.
     
@@ -425,79 +525,103 @@ def create_excel_report(batch_results: List[Dict]) -> bytes:
     for result in batch_results:
         analysis = result['analysis']
         
-        # Add error patterns
+        # Add error patterns with detailed categorization
         if analysis.antipatterns:
             for pattern in analysis.antipatterns:
-                error_data.append({
-                    'Query': result['filename'],
-                    'Category': 'Performance',
-                    'Pattern': pattern,
-                    'Severity': 'High',
-                    'Suggestion': analysis.suggestions[0] if analysis.suggestions else 'None'
-                })
+                # Find matching antipattern code
+                pattern_code = None
+                pattern_details = None
+                
+                for category, patterns in SQL_ANTIPATTERNS.items():
+                    for code, details in patterns.items():
+                        if any(detect.lower() in pattern.lower() for detect in details['detection']):
+                            pattern_code = code
+                            pattern_details = details
+                            break
+                    if pattern_code:
+                        break
+                
+                if pattern_code:
+                    error_data.append({
+                        'Query': result['filename'],
+                        'Pattern Code': pattern_code,
+                        'Pattern Name': pattern_details['name'],
+                        'Category': category,
+                        'Description': pattern_details['description'],
+                        'Impact': pattern_details['impact'],
+                        'Details': pattern,
+                        'Suggestion': analysis.suggestions[0] if analysis.suggestions else 'None'
+                    })
+                else:
+                    # Fallback for unrecognized patterns
+                    error_data.append({
+                        'Query': result['filename'],
+                        'Pattern Code': 'UNK001',
+                        'Pattern Name': 'Unknown Pattern',
+                        'Category': 'Other',
+                        'Description': pattern,
+                        'Impact': 'Unknown',
+                        'Details': pattern,
+                        'Suggestion': analysis.suggestions[0] if analysis.suggestions else 'None'
+                    })
         
-        # Add metrics
+        # Add metrics data
         metric_data.append({
             'Query': result['filename'],
             'Category': analysis.category,
             'Complexity': analysis.complexity_score,
-            'Joins': result['original_query'].upper().count("JOIN"),
-            'Conditions': result['original_query'].upper().count("WHERE") + 
-                        result['original_query'].upper().count("AND") + 
-                        result['original_query'].upper().count("OR"),
-            'Subqueries': result['original_query'].upper().count("SELECT") - 1
+            'Confidence': analysis.confidence_score
         })
         
-        # Add optimization details
+        # Add optimization data
         optimization_data.append({
             'Query': result['filename'],
             'Original': result['original_query'],
-            'Optimized': analysis.optimized_query if analysis.optimized_query else 'No optimization',
+            'Optimized': analysis.optimized_query if analysis.optimized_query else 'No optimization needed',
             'Suggestions': '\n'.join(analysis.suggestions) if analysis.suggestions else 'None'
         })
     
-    # Create DataFrames
-    error_df = pd.DataFrame(error_data)
-    metric_df = pd.DataFrame(metric_data)
-    optimization_df = pd.DataFrame(optimization_data)
-    
-    # Create Excel file
+    # Create Excel file in memory
     output = io.BytesIO()
-    
-    try:
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            # Write sheets
-            error_df.to_excel(writer, sheet_name='Errors', index=False)
-            metric_df.to_excel(writer, sheet_name='Metrics', index=False)
-            optimization_df.to_excel(writer, sheet_name='Optimizations', index=False)
-            
-            # Get workbook and format
-            workbook = writer.book
-            header_format = workbook.add_format({
-                'bold': True,
-                'bg_color': '#D9E1F2',
-                'border': 1
-            })
-            
-            # Format each sheet
-            for sheet_name in writer.sheets:
-                worksheet = writer.sheets[sheet_name]
-                df = error_df if sheet_name == 'Errors' else metric_df if sheet_name == 'Metrics' else optimization_df
-                
-                # Format headers and set column widths
-                for col_num, col_name in enumerate(df.columns):
-                    worksheet.write(0, col_num, col_name, header_format)
-                    
-                    # Set column widths based on content
-                    max_length = max(
-                        df[col_name].astype(str).apply(len).max(),
-                        len(str(col_name))
-                    )
-                    worksheet.set_column(col_num, col_num, min(max_length + 2, 100))
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        # Write error patterns sheet
+        if error_data:
+            pd.DataFrame(error_data).to_excel(writer, sheet_name='Errors', index=False)
+        else:
+            pd.DataFrame(columns=['Query', 'Pattern Code', 'Pattern Name', 'Category', 'Description', 'Impact', 'Details', 'Suggestion']).to_excel(writer, sheet_name='Errors', index=False)
         
-        return output.getvalue()
-    finally:
-        output.close()
+        # Write metrics sheet
+        if metric_data:
+            pd.DataFrame(metric_data).to_excel(writer, sheet_name='Metrics', index=False)
+        else:
+            pd.DataFrame(columns=['Query', 'Category', 'Complexity', 'Confidence']).to_excel(writer, sheet_name='Metrics', index=False)
+        
+        # Write optimizations sheet
+        if optimization_data:
+            pd.DataFrame(optimization_data).to_excel(writer, sheet_name='Optimizations', index=False)
+        else:
+            pd.DataFrame(columns=['Query', 'Original', 'Optimized', 'Suggestions']).to_excel(writer, sheet_name='Optimizations', index=False)
+        
+        # Auto-adjust column widths
+        for sheet_name in writer.sheets:
+            worksheet = writer.sheets[sheet_name]
+            for column in worksheet.columns:
+                max_length = 0
+                column = [cell for cell in column]
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(cell.value)
+                    except:
+                        pass
+                adjusted_width = (max_length + 2)
+                worksheet.column_dimensions[column[0].column_letter].width = min(adjusted_width, 100)  # Cap width at 100
+    
+    # Get the bytes value
+    excel_data = output.getvalue()
+    output.close()
+    
+    return excel_data
 
 def analyze_query_callback(analyzer: Optional[QueryAnalyzer]):
     """Callback function for analyzing queries in the manual analysis view.
@@ -987,11 +1111,12 @@ Provide a detailed analysis in the following JSON format:
 {{
     "error_patterns": [
         {{
-            "category": "One of: Performance, Logic, Complexity, Best Practice, Security, Maintainability",
-            "subcategory": "Specific area within the category",
-            "pattern": "Name of the anti-pattern or issue",
+            "category": "One of: PERFORMANCE, DATA_QUALITY, COMPLEXITY, BEST_PRACTICE, SECURITY, MAINTAINABILITY",
+            "code": "One of: FTS001, IJN001, IDX001, LDT001, NUL001, DTM001, NSQ001, CJN001, WCD001, ALS001, INJ001, PRM001, CMT001, FMT001",
+            "pattern": "Name of the anti-pattern",
             "severity": "One of: High, Medium, Low",
             "impact": "Brief impact description",
+            "location": "Where in the query this occurs",
             "description": "Detailed explanation of the issue",
             "recommendation": "How to fix or improve"
         }}
@@ -1009,6 +1134,33 @@ Provide a detailed analysis in the following JSON format:
         }}
     }}
 }}
+
+Anti-pattern Categories and Codes:
+1. PERFORMANCE:
+   - FTS001: Full Table Scan - Query performs a full table scan without appropriate filtering
+   - IJN001: Inefficient Join - Join conditions missing or using non-indexed columns
+   - IDX001: Missing Index - Frequently filtered or joined columns lack appropriate indexes
+   - LDT001: Large Data Transfer - Query retrieves excessive data volume
+
+2. DATA_QUALITY:
+   - NUL001: Unsafe Null Handling - Improper handling of NULL values in comparisons
+   - DTM001: Data Type Mismatch - Implicit data type conversions in comparisons
+
+3. COMPLEXITY:
+   - NSQ001: Nested Subquery - Deeply nested subqueries that could be simplified
+   - CJN001: Complex Join Chain - Long chain of joins that could be simplified
+
+4. BEST_PRACTICE:
+   - WCD001: Wildcard Column Usage - Using SELECT * instead of specific columns
+   - ALS001: Missing Table Alias - Tables or subqueries without clear aliases
+
+5. SECURITY:
+   - INJ001: SQL Injection Risk - Potential SQL injection vulnerabilities
+   - PRM001: Missing Parameterization - Hard-coded values instead of parameters
+
+6. MAINTAINABILITY:
+   - CMT001: Missing Comments - Complex logic without explanatory comments
+   - FMT001: Poor Formatting - Inconsistent or poor SQL formatting
 
 Focus on:
 1. Performance implications
