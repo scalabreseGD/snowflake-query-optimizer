@@ -1,10 +1,10 @@
 """Module for collecting query performance data from Snowflake."""
 
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any, Optional, Literal
+
 import pandas as pd
 import streamlit
-from snowflake.connector import SnowflakeConnection
-from snowflake.sqlalchemy import URL
+from snowflake.snowpark import Session
 from sqlalchemy import create_engine
 
 
@@ -43,6 +43,8 @@ class QueryMetricsCollector:
                 **self.connection_params
             )
         )
+
+        self.snowpark_session = Session.builder.configs(self.connection_params).create()
 
     def get_expensive_queries_paginated(self, days: int = 7,
                                         min_execution_time: float = 60.0,
@@ -129,3 +131,47 @@ class QueryMetricsCollector:
         with self.engine.connect() as conn:
             df = pd.read_sql(query, conn, params=[query_id])
         return df.to_dict(orient="records")
+
+    def compare_optimized_query_with_original(self, optimized_query, original_query_id):
+        with SnowflakeTransaction(session=self.snowpark_session, action_on_complete='rollback'):
+            self.snowpark_session.sql(optimized_query).collect()
+            res = self.snowpark_session.sql("SELECT LAST_QUERY_ID()").collect()
+            print()
+
+
+class SnowflakeTransaction:
+    def __init__(
+            self,
+            session: Session,
+            action_on_complete: Literal["commit", "rollback"],
+            action_on_error: Literal["commit", "rollback"] = 'rollback',
+    ):
+        self.session = session
+        self.actioned = False
+        self.action_on_complete = action_on_complete
+        if action_on_complete not in ["commit", "rollback"]:
+            raise ValueError(f"Invalid action_on_complete action {action_on_complete}")
+        self.action_on_error = action_on_error
+        if action_on_error not in ["commit", "rollback"]:
+            raise ValueError(f"Invalid action_on_error action {action_on_error}")
+
+    def __enter__(self):
+        self.session.sql("begin transaction").collect()
+        return self
+
+    def commit(self):
+        self.session.sql("commit").collect()
+        self.actioned = True
+
+    def rollback(self):
+        self.session.sql("rollback").collect()
+        self.actioned = True
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        # if we already actioned, don't do anything
+        if not self.actioned:
+            # if an error was thrown, rollback
+            if exc_type is not None:
+                self.session.sql(self.action_on_error).collect()
+            else:
+                self.session.sql(self.action_on_complete).collect()
