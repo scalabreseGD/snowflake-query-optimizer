@@ -2,6 +2,7 @@
 
 from typing import List, Dict, Any, Optional
 import pandas as pd
+import streamlit
 from snowflake.connector import SnowflakeConnection
 from snowflake.sqlalchemy import URL
 from sqlalchemy import create_engine
@@ -43,8 +44,20 @@ class QueryMetricsCollector:
             )
         )
 
+    def get_expensive_queries_paginated(self, days: int = 7,
+                                        min_execution_time: float = 60.0,
+                                        limit: int = 100,
+                                        page=0, page_size=20):
+        df = self.get_expensive_queries(days, min_execution_time, limit)
+        start_idx = page * page_size
+        end_idx = start_idx + page_size
+
+        total_pages = (len(df) - 1) // page_size + 1
+        return df.iloc[start_idx:end_idx], total_pages
+
+    @streamlit.cache_data
     def get_expensive_queries(
-            self,
+            _self,
             days: int = 7,
             min_execution_time: float = 60.0,
             limit: int = 100,
@@ -95,7 +108,7 @@ class QueryMetricsCollector:
         ORDER BY EXECUTION_TIME_SECONDS DESC
         LIMIT {limit};"""
 
-        with self.engine.connect() as conn:
+        with _self.engine.connect() as conn:
             df = pd.read_sql(
                 query,
                 conn

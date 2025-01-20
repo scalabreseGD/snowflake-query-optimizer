@@ -389,36 +389,36 @@ def display_query_comparison(original: str, optimized: str):
         st.code(formatted_optimized, language="sql")
 
     # Show diff below
-    st.markdown("### Changes")
-
-    st.markdown("""
-    <style>
-    .diff-legend {
-        display: flex;
-        gap: 20px;
-        margin-bottom: 10px;
-        font-family: monospace;
-    }
-    .diff-legend span {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-    }
-    .diff-added { background-color: #2ea04326; }
-    .diff-removed { background-color: #f8514926; }
-    </style>
-    <div class="diff-legend">
-        <span><span style="color: #2ea043">+</span> Added</span>
-        <span><span style="color: #f85149">-</span> Removed</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    try:
-        diff_html = create_query_diff(original, optimized)
-        st.markdown(diff_html, unsafe_allow_html=True)
-    except Exception as e:
-        print(f"Failed to create or display diff: {str(e)}")
-        st.error("Failed to display query differences")
+    # st.markdown("### Changes")
+    #
+    # st.markdown("""
+    # <style>
+    # .diff-legend {
+    #     display: flex;
+    #     gap: 20px;
+    #     margin-bottom: 10px;
+    #     font-family: monospace;
+    # }
+    # .diff-legend span {
+    #     display: inline-flex;
+    #     align-items: center;
+    #     gap: 5px;
+    # }
+    # .diff-added { background-color: #2ea04326; }
+    # .diff-removed { background-color: #f8514926; }
+    # </style>
+    # <div class="diff-legend">
+    #     <span><span style="color: #2ea043">+</span> Added</span>
+    #     <span><span style="color: #f85149">-</span> Removed</span>
+    # </div>
+    # """, unsafe_allow_html=True)
+    #
+    # try:
+    #     diff_html = create_query_diff(original, optimized)
+    #     st.markdown(diff_html, unsafe_allow_html=True)
+    # except Exception as e:
+    #     print(f"Failed to create or display diff: {str(e)}")
+    #     st.error("Failed to display query differences")
 
 
 def render_query_history_view(collector: Optional[QueryMetricsCollector], analyzer: Optional[QueryAnalyzer]):
@@ -451,24 +451,32 @@ def render_query_history_view(collector: Optional[QueryMetricsCollector], analyz
             "Number of queries",
             min_value=1,
             max_value=1000,
-            value=10,
+            value=50,
             help="Maximum number of queries to analyze"
+        )
+
+        page_size = st.number_input(
+            "Page Size",
+            min_value=1,
+            max_value=1000,
+            value=10,
+            help="Page Size for Pagination."
         )
 
         logging.debug(
             f"Query history parameters - days: {days}, min_execution_time: {min_execution_time}, limit: {limit}")
 
-        if st.button("Fetch Queries"):
+        fetch_query_btn = st.button("Fetch Queries")
+
+        if fetch_query_btn:
             if collector:
                 logging.info("Fetching query history from Snowflake")
                 with st.spinner("Fetching query history..."):
                     try:
-                        st.session_state.query_history = collector.get_expensive_queries(
-                            days=days,
-                            min_execution_time=min_execution_time,
-                            limit=limit
-                        )
-                        logging.info(f"Successfully fetched {len(st.session_state.query_history)} queries")
+                        if 'current_page' not in st.session_state:
+                            st.session_state.current_page = 0
+
+                        # logging.info(f"Successfully fetched {len(st.session_state.query_history)} queries")
                     except Exception as e:
                         logging.error(f"Failed to fetch query history: {str(e)}")
                         st.error(f"Failed to fetch queries: {str(e)}")
@@ -476,34 +484,37 @@ def render_query_history_view(collector: Optional[QueryMetricsCollector], analyz
                 logging.error("Cannot fetch queries - Snowflake connection not available")
                 st.error("Snowflake connection not available")
 
-    # Main content area
-    # col1, col2 = st.columns([1, 1])
-
     with st.container():
-        if st.session_state.query_history is not None:
-            st.dataframe(
-                st.session_state.query_history[[
+        if 'current_page' in st.session_state:
+            query_history, total_pages = collector.get_expensive_queries_paginated(
+                days=days,
+                min_execution_time=min_execution_time,
+                limit=limit,
+                page_size=page_size,
+                page=st.session_state.current_page
+            )
+            st.info("Select a query from the dataframe below clicking on the left of the table")
+            row = st.dataframe(
+                query_history[[
                     "query_id",
                     "execution_time_seconds",
                     "mb_scanned",
                     "rows_produced"
                 ]],
-                height=400
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
             )
-
-            selected_query_id = st.selectbox(
-                "Select a query to analyze",
-                st.session_state.query_history["query_id"].tolist()
-            )
-
-            if selected_query_id:
-                logging.debug(f"Selected query ID: {selected_query_id}")
-                query_text = st.session_state.query_history[
-                    st.session_state.query_history["query_id"] == selected_query_id
-                    ]["query_text"].iloc[0]
-                st.session_state.selected_query = format_sql(query_text)
+            prev_col, space_col, next_col = st.columns([1, 3, 1])
+            if prev_col.button("Previous") and st.session_state['current_page'] > 0:
+                st.session_state['current_page'] -= 1
+            if next_col.button("Next") and st.session_state['current_page'] < total_pages - 1:
+                st.session_state['current_page'] += 1
+            if len(row['selection']['rows']) > 0:
+                selected_item = row['selection']['rows'][0]
+                selected_query = query_history.iloc[selected_item]
+                st.session_state.selected_query = format_sql(selected_query['query_text'])
                 st.session_state.formatted_query = st.session_state.selected_query
-                logging.info(f"Query loaded for analysis - ID: {selected_query_id}")
 
     with st.container():
         if st.session_state.selected_query:
@@ -1241,7 +1252,8 @@ Query to analyze:
 Provide the analysis in the exact JSON format specified above."""
 
 
-def analyze_query_batch(queries: List[Dict], analyzer: QueryAnalyzer, schema_info: Optional[SchemaInfo] = None) -> List[Dict]:
+def analyze_query_batch(queries: List[Dict], analyzer: QueryAnalyzer, schema_info: Optional[SchemaInfo] = None) -> List[
+    Dict]:
     """Analyze a batch of queries in parallel using multi-threading.
     
     Args:
