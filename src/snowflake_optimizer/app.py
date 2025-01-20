@@ -477,9 +477,9 @@ def render_query_history_view(collector: Optional[QueryMetricsCollector], analyz
                 st.error("Snowflake connection not available")
 
     # Main content area
-    col1, col2 = st.columns([1, 1])
+    # col1, col2 = st.columns([1, 1])
 
-    with col1:
+    with st.container():
         if st.session_state.query_history is not None:
             st.dataframe(
                 st.session_state.query_history[[
@@ -505,7 +505,7 @@ def render_query_history_view(collector: Optional[QueryMetricsCollector], analyz
                 st.session_state.formatted_query = st.session_state.selected_query
                 logging.info(f"Query loaded for analysis - ID: {selected_query_id}")
 
-    with col2:
+    with st.container():
         if st.session_state.selected_query:
             st.markdown("### Selected Query")
             st.code(st.session_state.selected_query, language="sql")

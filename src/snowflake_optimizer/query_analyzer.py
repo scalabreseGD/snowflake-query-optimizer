@@ -78,7 +78,8 @@ class QueryCategoryResponse(BaseModel):
 class QueryAnalyzer:
     """Analyzes and optimizes SQL queries using LLMs."""
 
-    def __init__(self, openai_client: OpenAI,
+    def __init__(
+            self, openai_client: OpenAI,
                  openai_model: str,
                  tru_chat=None,
                  tru_app=None):
