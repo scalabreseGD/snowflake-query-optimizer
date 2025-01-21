@@ -1,13 +1,14 @@
 import streamlit as st
 
-from snowflake_optimizer.connections import initialize_connections
-from snowflake_optimizer.query_analyzer import QueryAnalyzer
+from snowflake_optimizer.connections import initialize_connections, setup_logging
+from snowflake_optimizer.query_analyzer import QueryAnalyzer, InputAnalysisModel
 from snowflake_optimizer.utils import display_query_comparison, init_common_states
 
 
 def render_advanced_optimization_view(page_id, analyzer: QueryAnalyzer):
     """Render the advanced optimization view."""
     st.markdown("## Advanced Optimization Mode")
+    setup_logging()
     init_common_states(page_id)
     # Input section
     st.markdown("### Query Input")
@@ -40,7 +41,10 @@ def render_advanced_optimization_view(page_id, analyzer: QueryAnalyzer):
             try:
                 with st.spinner("Analyzing query..."):
                     result = analyzer.analyze_query(
-                        query,
+                        [InputAnalysisModel(
+                            query=query,
+                            file_name='UI QUERY'
+                        )],
                         schema_info=schema_info if schema_info else None,
                         # partition_info=partition_info if partition_info else None,
                         # analyze_clustering=analyze_clustering,

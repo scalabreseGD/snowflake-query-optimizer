@@ -13,14 +13,8 @@ from snowflake_optimizer.connections import setup_logging, initialize_connection
 from snowflake_optimizer.query_analyzer import QueryAnalyzer, SchemaInfo
 from snowflake_optimizer.utils import format_sql, display_query_comparison
 
-# Set up logging
-setup_logging()
-
 # Load environment variables
 load_dotenv()
-
-if "manual_queries" not in st.session_state:
-    st.session_state.manual_queries = []
 
 
 def group_related_queries(queries: List[Dict]) -> List[Dict]:
@@ -160,71 +154,6 @@ Query to analyze:
 
 Provide the analysis in the exact JSON format specified above."""
 
-
-def analyze_query_batch(queries: List[Dict],
-                        analyzer: QueryAnalyzer,
-                        schema_info: Optional[SchemaInfo] = None) -> List[Dict]:
-    """Analyze a batch of queries in parallel using multi-threading.
-    
-    Args:
-        queries: List of query dictionaries containing filename and query
-        analyzer: QueryAnalyzer instance
-        schema_info: Optional schema information
-        
-    Returns:
-        List of analysis results
-    """
-    print("\n=== Starting Batch Analysis ===")
-    print(f"Number of queries to analyze: {len(queries)}")
-    results = []
-
-    # Calculate optimal number of workers
-    max_workers = min(32, len(queries))  # Cap at 32 threads
-    print(f"Using {max_workers} worker threads")
-
-    def analyze_single_query(query_info: Dict) -> Optional[Dict]:
-        try:
-            print(f"\nAnalyzing query from {query_info['filename']}")
-            analysis_result = analyzer.analyze_query(
-                query_info['query'],
-                schema_info=schema_info
-            )
-
-            if analysis_result:
-                print(f"Analysis successful for {query_info['filename']}")
-                return {
-                    "filename": query_info['filename'],
-                    "original_query": query_info['query'],
-                    "analysis": analysis_result
-                }
-            print(f"No analysis result for {query_info['filename']}")
-            return None
-
-        except Exception as e:
-            print(f"Error analyzing {query_info['filename']}: {str(e)}")
-            return None
-
-    # Use ThreadPoolExecutor for parallel processing
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks and get futures
-        future_to_query = {
-            executor.submit(analyze_single_query, query_info): query_info
-            for query_info in queries
-        }
-
-        # Process completed futures as they finish
-        for future in as_completed(future_to_query):
-            query_info = future_to_query[future]
-            try:
-                result = future.result()
-                if result:
-                    results.append(result)
-                    print(f"Added result for {query_info['filename']} to results list")
-            except Exception as e:
-                print(f"Analysis failed for {query_info['filename']}: {str(e)}")
-
-    print(f"\nBatch analysis completed. Total results: {len(results)}")
-    return results
 
 
 def compare_query(collector):

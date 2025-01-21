@@ -1,13 +1,14 @@
 import io
 import json
+import os
 import traceback
 from typing import Optional, List, Dict
 
 import pandas as pd
 import streamlit as st
 
-from snowflake_optimizer.connections import initialize_connections
-from snowflake_optimizer.query_analyzer import QueryAnalyzer, SchemaInfo
+from snowflake_optimizer.connections import initialize_connections, setup_logging
+from snowflake_optimizer.query_analyzer import QueryAnalyzer, SchemaInfo, InputAnalysisModel
 from snowflake_optimizer.utils import format_sql, display_query_comparison, SQL_ANTIPATTERNS, split_sql_queries, \
     init_common_states
 
@@ -16,12 +17,15 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
     """Render the manual query analysis view."""
     print("\n=== Starting Manual Analysis View ===")
     st.header("Manual Query Analysis")
+    setup_logging()
 
     if not analyzer:
         st.error("Query analyzer is not initialized. Please check your configuration.")
         return
 
     init_common_states(page_id)
+    if f"{page_id}_file_name" not in st.session_state:
+        st.session_state[f"{page_id}_file_name"] = None
 
     # Query input methods
     input_method = st.radio(
@@ -53,6 +57,7 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
 
         # Update formatted_query only if query has changed
         if query != st.session_state[f"{page_id}_formatted_query"]:
+            query = format_sql(query)
             st.session_state[f"{page_id}_formatted_query"] = query
 
         if query:
@@ -92,11 +97,19 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
 
         if uploaded_file:
             query = uploaded_file.getvalue().decode()
-            st.session_state[f"{page_id}_formatted_query"] = format_sql(query)
-            st.markdown("### Preview")
-            st.code(st.session_state[f"{page_id}_formatted_query"], language="sql")
+            queries = split_sql_queries(query)
+            if len(queries) > 1:
+                st.error(f"You uploaded a file with {len(queries)} queries. Please use Batch load instead")
+            else:
+                st.session_state[f"{page_id}_formatted_query"] = format_sql(queries[0])
+                st.session_state[f"{page_id}_file_name"] = uploaded_file.name
+                st.markdown("### Preview")
+                st.code(st.session_state[f"{page_id}_formatted_query"], language="sql")
 
             analyze_button = st.button("Analyze", on_click=lambda: __analyze_query_callback(page_id, analyzer))
+        else:
+            # Clean results
+            st.session_state[f"{page_id}_analysis_results"] = None
 
     elif input_method == "Batch Analysis":
         st.markdown("### Upload SQL Files")
@@ -116,37 +129,33 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
                 print(f"Found {len(queries)} queries in {sql_file.name}")
                 for i, query in enumerate(queries):
                     print(f"Found valid query of length: {len(query)}")
-                    all_queries.append({
-                        'filename': f"{sql_file.name} (Query {i + 1})",
-                        'query': query
-                    })
+                    all_queries.append(InputAnalysisModel(
+                        file_name=f"{sql_file.name} (Query {i + 1})",
+                        query=format_sql(query),
+                    ))
             print(f"Total queries found: {len(all_queries)}")
 
             analyze_button = st.button("Analyze All", key="batch_analyze")
             if analyze_button:
-                results = []
-                for i, query_info in enumerate(all_queries):
-                    progress = (i + 1) / len(all_queries)
+                max_parallel_call = os.cpu_count()
+                batch_results = []
+                for query_index in range(0, len(all_queries), max_parallel_call):
+                    query_batches = all_queries[query_index:query_index + max_parallel_call]
+                    progress = query_index / len(all_queries)
                     progress_bar.progress(progress)
-                    status_text.text(f"Analyzing {query_info['filename']}...")
-
+                    status_text.markdown("Analyzing:\n * " + '\n* '.join([q.file_name for q in query_batches]))
                     try:
-                        formatted_query = format_sql(query_info['query'])
-                        analysis = analyzer.analyze_query(formatted_query)
-                        if analysis:
-                            results.append({
-                                'filename': query_info['filename'],
-                                'original_query': query_info['query'],
-                                'analysis': analysis
-                            })
+                        batch_results.extend(analyzer.analyze_query(query_batches))
                     except Exception as e:
-                        st.error(f"Failed to analyze {query_info['filename']}: {str(e)}")
+                        st.error(f"Failed to analyze the Batch: {e}")
 
-                st.session_state[f"{page_id}_batch_results"] = results
+                batch_results = sorted(batch_results, key=lambda res: res['filename'])
+
+                st.session_state[f"{page_id}_batch_results"] = batch_results
                 status_text.text("Analysis complete!")
 
             # Display results if available
-            if hasattr(st.session_state, 'batch_results') and st.session_state[f"{page_id}_batch_results"]:
+            if st.session_state.get(f"{page_id}_batch_results"):
                 st.markdown("### Analysis Results")
                 for result in st.session_state[f"{page_id}_batch_results"]:
                     with st.expander(f"Results for {result['filename']}"):
@@ -170,7 +179,7 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
                             st.code(result['analysis'].optimized_query, language="sql")
 
             # Export functionality in a separate section
-            if hasattr(st.session_state, 'batch_results') and st.session_state[f"{page_id}_batch_results"]:
+            if st.session_state.get(f"{page_id}_batch_results"):
                 st.markdown("### Export Results")
                 try:
                     print("\n=== Export Button Clicked ===")
@@ -189,7 +198,7 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
                     print(f"Traceback: {traceback.format_exc()}")
 
     # Display analysis results if available
-    if st.session_state[f"{page_id}_analysis_results"]:
+    if st.session_state.get(f"{page_id}_analysis_results"):
         st.subheader("Analysis Results")
 
         # Display query category and complexity
@@ -241,10 +250,12 @@ def __analyze_query_callback(page_id, analyzer: Optional[QueryAnalyzer]):
 
     try:
         print(f'Analyzing query of length: {len(st.session_state[f"{page_id}_formatted_query"])}')
-        st.session_state[f"{page_id}_analysis_results"] = analyzer.analyze_query(
-            st.session_state[f"{page_id}_formatted_query"],
+        file_name = st.session_state.get(f"{page_id}_file_name", 'UI QUERY')
+        result = analyzer.analyze_query(
+            [InputAnalysisModel(file_name=file_name, query=st.session_state[f"{page_id}_formatted_query"])],
             schema_info=st.session_state[f"{page_id}_schema_info"] if hasattr(st.session_state, 'schema_info') else None
-        )
+        )[0]
+        st.session_state[f"{page_id}_analysis_results"] = result['analysis']
         print("Analysis completed successfully")
 
         # Store the analyzed query for comparison

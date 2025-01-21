@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 from snowflake_optimizer.connections import setup_logging, initialize_connections
 from snowflake_optimizer.data_collector import QueryMetricsCollector
-from snowflake_optimizer.query_analyzer import QueryAnalyzer
+from snowflake_optimizer.query_analyzer import QueryAnalyzer, InputAnalysisModel
 from snowflake_optimizer.utils import format_sql, display_query_comparison, init_common_states
 
 
@@ -16,6 +16,7 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
     """Render the query history analysis view.
 
     Args:
+        page_id (str): The ID of the page to render.
         collector: QueryMetricsCollector instance
         analyzer: QueryAnalyzer instance
     """
@@ -27,6 +28,9 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
     load_dotenv()
 
     init_common_states(page_id)
+
+    if f"{page_id}_selected_query_id" not in st.session_state:
+        st.session_state[f"{page_id}_selected_query_id"] = None
 
     logging.info("Rendering query history view")
     st.header("Query History Analysis")
@@ -111,6 +115,7 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
             if len(row['selection']['rows']) > 0:
                 selected_item = row['selection']['rows'][0]
                 selected_query = query_history.iloc[selected_item]
+                st.session_state[f"{page_id}_selected_query_id"] = selected_query['query_id']
                 st.session_state[f"{page_id}_selected_query"] = format_sql(selected_query['query_text'])
                 st.session_state[f"{page_id}_formatted_query"] = st.session_state[f"{page_id}_selected_query"]
 
@@ -124,9 +129,12 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
                     logging.info("Starting query analysis")
                     with st.spinner("Analyzing query..."):
                         try:
-                            st.session_state[f"{page_id}_analysis_results"] = analyzer.analyze_query(
-                                st.session_state[f"{page_id}_selected_query"]
-                            )
+                            analysis_result = analyzer.analyze_query(
+                                [
+                                    InputAnalysisModel(file_name=st.session_state[f"{page_id}_selected_query_id"],
+                                                       query=st.session_state[f"{page_id}_selected_query"])
+                                ])[0]
+                            st.session_state[f"{page_id}_analysis_results"] = analysis_result['analysis']
                             logging.info("Query analysis completed successfully")
                         except Exception as e:
                             logging.error(f"Query analysis failed: {str(e)}")

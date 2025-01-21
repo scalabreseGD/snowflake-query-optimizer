@@ -1,6 +1,8 @@
 """Module for analyzing and optimizing SQL queries using LLMs."""
 
 import json
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
@@ -47,6 +49,11 @@ class QueryAnalysis:
     estimated_cost: Optional[float] = None
     materialization_suggestions: List[str] = None
     index_suggestions: List[str] = None
+
+
+class InputAnalysisModel(BaseModel):
+    file_name: str
+    query: str
 
 
 class AntiPattern(BaseModel):
@@ -933,7 +940,7 @@ Query to analyze:
             print(f"Error getting category: {str(e)}")
             return QueryCategory.UNKNOWN, ""
 
-    def analyze_query(
+    def _analyze_query(
             self,
             query: str,
             schema_info: Optional[SchemaInfo] = None,
@@ -1009,3 +1016,69 @@ Query to analyze:
             materialization_suggestions=materialization_suggestions,
             index_suggestions=self._suggest_indexes(query, schema_info)
         )
+
+    def analyze_query(self, queries: List[InputAnalysisModel],
+                      schema_info: Optional[SchemaInfo] = None) -> List[Dict]:
+
+        """Analyze a batch of queries in parallel using multi-threading.
+
+        Args:
+            queries: List of query dictionaries containing filename or query_id and query
+            schema_info: Optional schema information
+
+        Returns:
+            List of analysis results
+        """
+        print("\n=== Starting Batch Analysis ===")
+        print(f"Number of queries to analyze: {len(queries)}")
+        results = []
+
+        # Calculate optimal number of workers
+        max_workers = min(32, len(queries), os.cpu_count())  # Cap at 32 threads
+        print(f"Using {max_workers} worker threads")
+
+        def analyze_single_query(query_info: InputAnalysisModel) -> Optional[Dict]:
+            try:
+                print(f"\nAnalyzing query from {query_info.file_name}")
+                analysis_result = self._analyze_query(
+                    query_info.query,
+                    schema_info=schema_info
+                )
+
+                if analysis_result:
+                    print(f"Analysis successful for {query_info.file_name}")
+                    return {
+                        "filename": query_info.file_name,
+                        "original_query": query_info.query,
+                        "analysis": analysis_result
+                    }
+                print(f"No analysis result for {query_info.file_name}")
+                return None
+
+            except Exception as e:
+                print(f"Error analyzing {query_info.file_name}: {str(e)}")
+                return None
+
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks and get futures
+            futures = [executor.submit(analyze_single_query, query_info) for query_info in queries]
+            # future_to_query = {
+            #     executor.submit(analyze_single_query, query_info): query_info
+            #     for query_info in queries
+            # }
+
+            # Process completed futures as they finish
+            # for future in as_completed(future_to_query):
+            for future in as_completed(futures):
+                # query_info = future_to_query[future]
+                try:
+                    result = future.result()
+                    if result:
+                        results.append(result)
+                        print(f"Added result for {result['filename']} to results list")
+                except Exception as e:
+                    print(f"Analysis failed for {result['filename']}: {str(e)}")
+
+        print(f"\nBatch analysis completed. Total results: {len(results)}")
+        return results
