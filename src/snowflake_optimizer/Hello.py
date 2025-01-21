@@ -21,121 +21,6 @@ load_dotenv()
 
 if "manual_queries" not in st.session_state:
     st.session_state.manual_queries = []
-if "schema_info" not in st.session_state:
-    st.session_state.schema_info = None
-
-
-def render_advanced_optimization_view(analyzer: QueryAnalyzer):
-    """Render the advanced optimization view."""
-    st.markdown("## Advanced Optimization Mode")
-
-    # Input section
-    st.markdown("### Query Input")
-    query = st.text_area("Enter your SQL query", height=200, key="advanced_sql_input")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        schema_info = st.text_area("Table Schema Information (Optional)",
-                                   placeholder="Enter table definitions, indexes, etc.",
-                                   height=150)
-    with col2:
-        partition_info = st.text_area("Partitioning Details (Optional)",
-                                      placeholder="Enter partitioning strategy details",
-                                      height=150)
-
-    # Analysis options
-    st.markdown("### Optimization Options")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        analyze_clustering = st.checkbox("Analyze Clustering Keys", value=True)
-        suggest_materialization = st.checkbox("Suggest Materialization", value=True)
-    with col2:
-        analyze_search = st.checkbox("Analyze Search Optimization", value=True)
-        suggest_caching = st.checkbox("Suggest Caching Strategy", value=True)
-    with col3:
-        analyze_partitioning = st.checkbox("Analyze Partitioning", value=True)
-
-    if st.button("Analyze Query"):
-        if query:
-            try:
-                with st.spinner("Analyzing query..."):
-                    result = analyzer.analyze_query(
-                        query,
-                        schema_info=schema_info if schema_info else None,
-                        partition_info=partition_info if partition_info else None,
-                        analyze_clustering=analyze_clustering,
-                        suggest_materialization=suggest_materialization,
-                        analyze_search=analyze_search,
-                        suggest_caching=suggest_caching,
-                        analyze_partitioning=analyze_partitioning
-                    )
-
-                    if result:
-                        st.markdown("### Analysis Results")
-
-                        # Query Information
-                        st.markdown("#### Query Information")
-                        st.markdown(f"**Category:** {result.category}")
-                        st.markdown(f"**Confidence Score:** {result.confidence_score:.2f}")
-
-                        # Display comparisons
-                        display_query_comparison(query, result.optimized_query)
-
-                        # Antipatterns
-                        if result.antipatterns:
-                            st.markdown("#### Detected Antipatterns")
-                            for pattern in result.antipatterns:
-                                st.warning(pattern)
-
-                        # Optimization suggestions
-                        if result.suggestions:
-                            st.markdown("#### Optimization Suggestions")
-                            for suggestion in result.suggestions:
-                                st.info(suggestion)
-                    else:
-                        st.error("Failed to analyze query. Please try again.")
-            except Exception as e:
-                st.error(f"Analysis failed: {str(e)}")
-        else:
-            st.warning("Please enter a SQL query to analyze.")
-
-
-def analyze_query_with_retry(analyzer: QueryAnalyzer, query: str, schema_info: Optional[SchemaInfo] = None,
-                             max_retries: int = 3) -> Optional[Any]:
-    """Analyze a query with retry logic and error handling.
-    
-    Args:
-        analyzer: QueryAnalyzer instance
-        query: SQL query to analyze
-        schema_info: Optional schema information
-        max_retries: Maximum number of retry attempts
-        
-    Returns:
-        Analysis results or None if analysis fails
-    """
-    print(f"\n=== Analyzing Query (length: {len(query)}) ===")
-
-    for attempt in range(max_retries):
-        try:
-            # Try to format the query first
-            formatted_query = format_sql(query)
-            print(f"Attempt {attempt + 1}: Formatted query length: {len(formatted_query)}")
-
-            # Analyze the formatted query
-            result = analyzer.analyze_query(
-                formatted_query,
-                schema_info=schema_info
-            )
-            print("Analysis successful")
-            return result
-
-        except Exception as e:
-            print(f"Attempt {attempt + 1} failed: {str(e)}")
-            if attempt == max_retries - 1:
-                raise Exception(f"Failed to analyze query after {max_retries} attempts: {str(e)}")
-            continue
-
-    return None
 
 
 def group_related_queries(queries: List[Dict]) -> List[Dict]:
@@ -439,21 +324,8 @@ def main():
     st.title("Snowflake Query Optimizer")
     st.write("Analyze and optimize your Snowflake SQL queries")
 
-    # Initialize connections
-    collector, analyzer = initialize_connections('app')
-    # compare_query(collector)
 
-    # Mode selection
-    mode = st.sidebar.radio(
-        "Select Mode",
-        ["Query History Analysis", "Manual Analysis", "Advanced Optimization"]
-    )
-    logging.info(f"Selected mode: {mode}")
-
-    render_advanced_optimization_view(analyzer)
-
-    logging.debug("Main application loop completed")
-
+logging.debug("Main application loop completed")
 
 if __name__ == "__main__":
     main()

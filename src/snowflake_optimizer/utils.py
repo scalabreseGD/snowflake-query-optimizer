@@ -106,6 +106,22 @@ SQL_ANTIPATTERNS = {
 }
 
 
+def init_common_states(page_id):
+    # Initialize session state variables if they don't exist
+    if f"{page_id}_formatted_query" not in st.session_state:
+        st.session_state[f"{page_id}_formatted_query"] = ""
+    if f"{page_id}_analysis_results" not in st.session_state:
+        st.session_state[f"{page_id}_analysis_results"] = None
+    if f"{page_id}_selected_query" not in st.session_state:
+        st.session_state[f"{page_id}_selected_query"] = None
+    if f"{page_id}_batch_results" not in st.session_state:
+        st.session_state[f"{page_id}_batch_results"] = []
+    if f"{page_id}_schema_info" not in st.session_state:
+        st.session_state[f"{page_id}_schema_info"] = None
+    if f"{page_id}_clipboard" not in st.session_state:
+        st.session_state[f"{page_id}_clipboard"] = None
+
+
 def display_query_comparison(original: str, optimized: str):
     """Display a side-by-side comparison of original and optimized queries."""
     if not original or not optimized:

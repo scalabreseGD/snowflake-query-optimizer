@@ -8,7 +8,8 @@ import streamlit as st
 
 from snowflake_optimizer.connections import initialize_connections
 from snowflake_optimizer.query_analyzer import QueryAnalyzer, SchemaInfo
-from snowflake_optimizer.utils import format_sql, display_query_comparison, SQL_ANTIPATTERNS, split_sql_queries
+from snowflake_optimizer.utils import format_sql, display_query_comparison, SQL_ANTIPATTERNS, split_sql_queries, \
+    init_common_states
 
 
 def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer]):
@@ -20,19 +21,7 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
         st.error("Query analyzer is not initialized. Please check your configuration.")
         return
 
-    # Initialize session state variables if they don't exist
-    if f"{page_id}_formatted_query" not in st.session_state:
-        st.session_state[f"{page_id}_formatted_query"] = ""
-    if f"{page_id}_analysis_results" not in st.session_state:
-        st.session_state[f"{page_id}_analysis_results"] = None
-    if f"{page_id}_selected_query" not in st.session_state:
-        st.session_state[f"{page_id}_selected_query"] = None
-    if f"{page_id}_batch_results" not in st.session_state:
-        st.session_state[f"{page_id}_batch_results"] = []
-    if f"{page_id}_schema_info" not in st.session_state:
-        st.session_state[f"{page_id}_schema_info"] = None
-    if f"{page_id}_clipboard" not in st.session_state:
-        st.session_state[f"{page_id}_clipboard"] = None
+    init_common_states(page_id)
 
     # Query input methods
     input_method = st.radio(
@@ -95,7 +84,7 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
                 st.error("Invalid JSON format for columns")
                 st.session_state[f"{page_id}_schema_info"] = None
 
-        analyze_button = st.button("Analyze", on_click=lambda: __analyze_query_callback(analyzer))
+        analyze_button = st.button("Analyze", on_click=lambda: __analyze_query_callback(page_id, analyzer))
 
     elif input_method == "File Upload":
         st.markdown("### Upload SQL File")
@@ -107,7 +96,7 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
             st.markdown("### Preview")
             st.code(st.session_state[f"{page_id}_formatted_query"], language="sql")
 
-            analyze_button = st.button("Analyze", on_click=lambda: __analyze_query_callback(analyzer))
+            analyze_button = st.button("Analyze", on_click=lambda: __analyze_query_callback(page_id, analyzer))
 
     elif input_method == "Batch Analysis":
         st.markdown("### Upload SQL Files")
@@ -233,7 +222,7 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
                 st.success("Query copied to clipboard!")
 
 
-def __analyze_query_callback(analyzer: Optional[QueryAnalyzer]):
+def __analyze_query_callback(page_id, analyzer: Optional[QueryAnalyzer]):
     """Callback function for analyzing queries in the manual analysis view.
 
     Args:
@@ -387,8 +376,7 @@ def __create_excel_report(batch_results: List[Dict]) -> bytes:
 
 
 def main():
-    st.title("Snowflake Query Optimizer")
-    st.write("Analyze and optimize your Snowflake SQL queries")
+    st.set_page_config(page_title="Manual Analysis")
     page_id = 'manual_analysis'
     # Initialize connections
     _collector, _analyzer = initialize_connections(page_id)

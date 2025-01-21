@@ -1,0 +1,91 @@
+import streamlit as st
+
+from snowflake_optimizer.connections import initialize_connections
+from snowflake_optimizer.query_analyzer import QueryAnalyzer
+from snowflake_optimizer.utils import display_query_comparison, init_common_states
+
+
+def render_advanced_optimization_view(page_id, analyzer: QueryAnalyzer):
+    """Render the advanced optimization view."""
+    st.markdown("## Advanced Optimization Mode")
+    init_common_states(page_id)
+    # Input section
+    st.markdown("### Query Input")
+    query = st.text_area("Enter your SQL query", height=200, key="advanced_sql_input")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        schema_info = st.text_area("Table Schema Information (Optional)",
+                                   placeholder="Enter table definitions, indexes, etc.",
+                                   height=150)
+    with col2:
+        partition_info = st.text_area("Partitioning Details (Optional)",
+                                      placeholder="Enter partitioning strategy details",
+                                      height=150)
+
+    # Analysis options
+    st.markdown("### Optimization Options")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        analyze_clustering = st.checkbox("Analyze Clustering Keys", value=True)
+        suggest_materialization = st.checkbox("Suggest Materialization", value=True)
+    with col2:
+        analyze_search = st.checkbox("Analyze Search Optimization", value=True)
+        suggest_caching = st.checkbox("Suggest Caching Strategy", value=True)
+    with col3:
+        analyze_partitioning = st.checkbox("Analyze Partitioning", value=True)
+
+    if st.button("Analyze Query"):
+        if query:
+            try:
+                with st.spinner("Analyzing query..."):
+                    result = analyzer.analyze_query(
+                        query,
+                        schema_info=schema_info if schema_info else None,
+                        # partition_info=partition_info if partition_info else None,
+                        # analyze_clustering=analyze_clustering,
+                        # suggest_materialization=suggest_materialization,
+                        # analyze_search=analyze_search,
+                        # suggest_caching=suggest_caching,
+                        # analyze_partitioning=analyze_partitioning
+                    )
+
+                    if result:
+                        st.markdown("### Analysis Results")
+
+                        # Query Information
+                        st.markdown("#### Query Information")
+                        st.markdown(f"**Category:** {result.category}")
+                        st.markdown(f"**Confidence Score:** {result.confidence_score:.2f}")
+
+                        # Display comparisons
+                        display_query_comparison(query, result.optimized_query)
+
+                        # Antipatterns
+                        if result.antipatterns:
+                            st.markdown("#### Detected Antipatterns")
+                            for pattern in result.antipatterns:
+                                st.warning(pattern)
+
+                        # Optimization suggestions
+                        if result.suggestions:
+                            st.markdown("#### Optimization Suggestions")
+                            for suggestion in result.suggestions:
+                                st.info(suggestion)
+                    else:
+                        st.error("Failed to analyze query. Please try again.")
+            except Exception as e:
+                st.error(f"Analysis failed: {str(e)}")
+        else:
+            st.warning("Please enter a SQL query to analyze.")
+
+
+def main():
+    st.set_page_config(page_title="Advanced Optimization")
+    page_id = 'advanced_optimization'
+    # Initialize connections
+    _collector, _analyzer = initialize_connections(page_id)
+    render_advanced_optimization_view(page_id, _analyzer)
+
+
+main()

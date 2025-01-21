@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from snowflake_optimizer.connections import setup_logging, initialize_connections
 from snowflake_optimizer.data_collector import QueryMetricsCollector
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
-from snowflake_optimizer.utils import format_sql, display_query_comparison
+from snowflake_optimizer.utils import format_sql, display_query_comparison, init_common_states
 
 
 def render_query_history_view(page_id: str, collector: Optional[QueryMetricsCollector],
@@ -26,14 +26,7 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
     # Load environment variables
     load_dotenv()
 
-    if f"{page_id}_selected_query" not in st.session_state:
-        st.session_state[f"{page_id}_selected_query"] = None
-    if f"{page_id}_formatted_query" not in st.session_state:
-        st.session_state[f"{page_id}_formatted_query"] = ""
-    if f"{page_id}_analysis_results" not in st.session_state:
-        st.session_state[f"{page_id}_analysis_results"] = None
-    if f"{page_id}_clipboard" not in st.session_state:
-        st.session_state[f"{page_id}_clipboard"] = None
+    init_common_states(page_id)
 
     logging.info("Rendering query history view")
     st.header("Query History Analysis")
@@ -185,11 +178,11 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
 
 
 def main():
-    st.title("Snowflake Query Optimizer")
-    st.write("Analyze and optimize your Snowflake SQL queries")
+    st.set_page_config(page_title="Query History")
     page_id = 'query_history'
     # Initialize connections
     _collector, _analyzer = initialize_connections(page_id)
     render_query_history_view(page_id, _collector, _analyzer)
+
 
 main()
