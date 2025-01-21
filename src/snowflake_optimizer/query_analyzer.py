@@ -923,7 +923,7 @@ Query to analyze:
             ]
 
             # Get suggestions
-            suggestions = self._get_suggestions(query)
+            suggestions = self._get_suggestions(query, antipatterns)
 
             # Get complexity score
             complexity_score = self._get_complexity(query)
