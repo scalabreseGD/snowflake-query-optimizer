@@ -57,7 +57,7 @@ class QueryMetricsCollector:
         total_pages = (len(df) - 1) // page_size + 1
         return df.iloc[start_idx:end_idx], total_pages
 
-    @streamlit.cache_data
+    @streamlit.cache_data(show_spinner="Fetching Query History")
     def get_expensive_queries(
             _self,
             days: int = 7,
