@@ -244,11 +244,14 @@ FROM
                      load_filename
      FROM ids_qa.cust.crm_campaign_send_log_arbys);
     """
-    collector.compare_optimized_query_with_original(optimized, query_id)
+    collector.get_query_operator_stats_by_query_id(query_id)
+    # collector.compare_optimized_query_with_original(optimized, query_id)
 
 
 def main():
     """Main function to run the Streamlit application."""
+    collector, analyzer = initialize_connections('app')
+    compare_query(collector)
     logging.info("Starting main application")
     st.title("Snowflake Query Optimizer")
     st.write("Analyze and optimize your Snowflake SQL queries")

@@ -1,96 +1,18 @@
 """Module for analyzing and optimizing SQL queries using LLMs."""
 
 import json
+import sqlite3
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
-from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import sqlparse
 from openai import OpenAI
-from pydantic import BaseModel, Field
 from sqlglot import parse_one, exp
 
-
-class QueryCategory(str, Enum):
-    """Enumeration of query categories."""
-
-    DATA_MANIPULATION = "Data Manipulation"
-    REPORTING = "Reporting"
-    ETL = "ETL"
-    ANALYTICS = "Analytics"
-    UNKNOWN = "Unknown"
-
-
-@dataclass
-class SchemaInfo:
-    """Contains table schema and statistics information."""
-
-    table_name: str
-    columns: List[Dict[str, str]]
-    row_count: Optional[int] = None
-    size_bytes: Optional[int] = None
-    indexes: Optional[List[str]] = None
-    partitioning: Optional[Dict[str, str]] = None
-
-
-@dataclass
-class QueryAnalysis:
-    """Contains the analysis results for a query."""
-
-    original_query: str
-    optimized_query: Optional[str]
-    antipatterns: List[str]
-    suggestions: List[str]
-    confidence_score: float
-    category: QueryCategory = QueryCategory.UNKNOWN
-    complexity_score: float = 0.0
-    estimated_cost: Optional[float] = None
-    materialization_suggestions: List[str] = None
-    index_suggestions: List[str] = None
-
-
-class InputAnalysisModel(BaseModel):
-    file_name: str
-    query: str
-
-
-class OutputAnalysisModel(BaseModel):
-    filename: str
-    original_query: str
-    analysis: QueryAnalysis
-
-    def __getitem__(self, item):
-        return getattr(self, item)
-
-    def __setitem__(self, key, value):
-        setattr(self, key, value)
-
-
-class AntiPattern(BaseModel):
-    """Represents a SQL antipattern with its details."""
-    code: str = Field(..., description="Antipattern code (e.g., FTS001)")
-    name: str = Field(..., description="Name of the antipattern")
-    category: str = Field(...,
-                          description="Category (PERFORMANCE, DATA_QUALITY, COMPLEXITY, BEST_PRACTICE, SECURITY, MAINTAINABILITY)")
-    description: str = Field(..., description="Detailed description of the antipattern")
-    impact: str = Field(..., description="Impact level (High, Medium, Low)")
-    location: str = Field(..., description="Location in the query where antipattern occurs")
-    suggestion: str = Field(..., description="Suggestion to fix the antipattern")
-
-
-class QueryAnalysisResponse(BaseModel):
-    """Structured response for query analysis."""
-    antipatterns: List[AntiPattern] = Field(default_factory=list, description="List of antipatterns found in the query")
-    suggestions: List[str] = Field(default_factory=list, description="List of optimization suggestions")
-    complexity_score: float = Field(..., ge=0, le=1, description="Query complexity score between 0 and 1")
-
-
-class QueryCategoryResponse(BaseModel):
-    """Structured response for query categorization."""
-    category: str = Field(..., description="Query category name")
-    explanation: str = Field(..., description="Explanation for the categorization")
+from snowflake_optimizer.cache import BaseCache
+from snowflake_optimizer.models import SchemaInfo, QueryCategory, QueryAnalysis, InputAnalysisModel, OutputAnalysisModel
+from snowflake_optimizer.utils import SQL_ANTIPATTERNS
 
 
 class QueryAnalyzer:
@@ -98,9 +20,10 @@ class QueryAnalyzer:
 
     def __init__(
             self, openai_client: OpenAI,
-            openai_model: str):
+            openai_model: str,
+            cache: BaseCache = None):
         """Initialize the analyzer with API credentials."""
-        # Initialize Anthropic client
+        self.cache = cache
         self.client = openai_client
         self.model = openai_model
 
@@ -193,6 +116,13 @@ Example response:
 Query to analyze:
 {{query}}"""
 
+    def __read_cache(self, messages):
+        if self.cache:
+            cache_results = self.cache.get(json.dumps(messages))
+            if cache_results:
+                return cache_results
+        return None
+
     def __run_chat_completion(self, user_prompt, system_prompt=None, **chat_kwargs):
         messages = []
         if system_prompt:
@@ -201,12 +131,17 @@ Query to analyze:
                 "content": system_prompt}
             )
         messages.append({'role': 'user', 'content': user_prompt})
-
-        return self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            **chat_kwargs
-        ).choices[0].message.content
+        cache_results = self.__read_cache(messages)
+        if cache_results:
+            return cache_results
+        else:
+            results = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                **chat_kwargs
+            ).choices[0].message.content
+            self.cache.set(json.dumps(messages), results)
+            return results
 
     def _parse_and_validate(self, query: str, max_retries: int = 3) -> bool:
         """Validate SQL query syntax and attempt repair if needed.
@@ -806,20 +741,24 @@ The optimized query must return exactly the same results as the original."""
 
     def _get_antipatterns(self, query: str) -> List[dict]:
         """Get antipatterns using a focused prompt."""
+        antipattern_codes = ""
+        for category, antipatterns in SQL_ANTIPATTERNS.items():
+            for a_code, a_object in antipatterns.items():
+                a_name = a_object['name']
+                antipattern_codes += f"{category}:{a_code} ({a_name})\n"
+
         antipattern_prompt = f"""Analyze this SQL query for antipatterns.
 For each antipattern found, provide the following information in plain text format:
+```
 CODE: (use one from the list below)
 NAME: (name of the antipattern)
 DESCRIPTION: (brief description)
 IMPACT: (High, Medium, or Low)
 LOCATION: (where in query)
 SUGGESTION: (how to fix)
-
+```
 Available codes:
-- PERFORMANCE: FTS001 (Full Table Scan), IJN001 (Inefficient Join)
-- DATA_QUALITY: NUL001 (Null Handling), DTM001 (Date/Time)
-- COMPLEXITY: NSQ001 (Nested Subquery), CJN001 (Complex Join)
-- BEST_PRACTICE: WCD001 (Weak Columns), ALS001 (Ambiguous Columns)
+{antipattern_codes}
 
 Query to analyze:
 {query}"""
@@ -836,14 +775,13 @@ Query to analyze:
             current_pattern = {}
 
             for line in response.split('\n'):
-                line = line.strip()
-                line = line.replace("*", "")
                 if not line:
                     if current_pattern:
                         antipatterns.append(current_pattern)
                         current_pattern = {}
                     continue
-
+                line = line.strip()
+                line = line.replace("*", "")
                 if ':' in line:
                     key, value = line.split(':', 1)
                     key = key.strip().upper()
@@ -861,15 +799,23 @@ Query to analyze:
             print(f"Error getting antipatterns: {str(e)}")
             return []
 
-    def _get_suggestions(self, query: str) -> List[str]:
+    def _get_suggestions(self, query: str, identified_antipatterns: List[str] = None) -> List[str]:
         """Get optimization suggestions using a focused prompt."""
-        suggestion_prompt = f"""Analyze this SQL query and suggest optimizations.
-Provide each suggestion on a new line starting with '- '.
-Focus on query structure, indexes, and Snowflake features.
-Keep each suggestion brief and actionable.
+        if identified_antipatterns is not None:
+            antipatterns_prompt = 'The query contains the following antipatterns:\n' + '\n'.join(identified_antipatterns)
+        else:
+            antipatterns_prompt = ''
 
-Query to analyze:
-{query}"""
+        suggestion_prompt = f"""
+        {antipatterns_prompt}
+        
+        Analyze this SQL query and suggest optimizations.
+        Provide each suggestion on a new line starting with '- '.
+        Focus on query structure, indexes, and Snowflake features.
+        Keep each suggestion brief and actionable.
+
+        Query to analyze:
+        {query}""".lstrip()
 
         try:
             response = self.__run_chat_completion(
@@ -956,6 +902,7 @@ Query to analyze:
     def _analyze_query(
             self,
             query: str,
+            operator_stats: str = None,
             schema_info: Optional[SchemaInfo] = None,
             include_cost_estimate: bool = False
     ) -> QueryAnalysis:
@@ -1052,24 +999,24 @@ Query to analyze:
 
         def analyze_single_query(query_info: InputAnalysisModel) -> Optional[OutputAnalysisModel]:
             try:
-                print(f"\nAnalyzing query from {query_info.file_name}")
+                print(f"\nAnalyzing query from {query_info.file_name_or_query_id}")
                 analysis_result = self._analyze_query(
                     query_info.query,
                     schema_info=schema_info
                 )
 
                 if analysis_result:
-                    print(f"Analysis successful for {query_info.file_name}")
+                    print(f"Analysis successful for {query_info.file_name_or_query_id}")
                     return OutputAnalysisModel(
-                        filename=query_info.file_name,
+                        filename=query_info.file_name_or_query_id,
                         original_query=query_info.query,
                         analysis=analysis_result
                     )
-                print(f"No analysis result for {query_info.file_name}")
+                print(f"No analysis result for {query_info.file_name_or_query_id}")
                 return None
 
             except Exception as e:
-                print(f"Error analyzing {query_info.file_name}: {str(e)}")
+                print(f"Error analyzing {query_info.file_name_or_query_id}: {str(e)}")
                 return None
 
         # Use ThreadPoolExecutor for parallel processing

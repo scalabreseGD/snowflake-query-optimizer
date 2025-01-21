@@ -1,14 +1,14 @@
 import logging
-
-import streamlit as st
 from typing import Optional
 
+import streamlit as st
 from dotenv import load_dotenv
 
-from snowflake_optimizer.connections import setup_logging, initialize_connections
+from snowflake_optimizer.connections import setup_logging, initialize_connections, get_cache
 from snowflake_optimizer.data_collector import QueryMetricsCollector
-from snowflake_optimizer.query_analyzer import QueryAnalyzer, InputAnalysisModel
-from snowflake_optimizer.utils import format_sql, display_query_comparison, init_common_states, \
+from snowflake_optimizer.models import InputAnalysisModel
+from snowflake_optimizer.query_analyzer import QueryAnalyzer
+from snowflake_optimizer.utils import format_sql, init_common_states, \
     create_results_expanders, create_export_excel_from_results
 
 
@@ -132,7 +132,7 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
                         try:
                             analysis_result = analyzer.analyze_query(
                                 [
-                                    InputAnalysisModel(file_name=st.session_state[f"{page_id}_selected_query_id"],
+                                    InputAnalysisModel(file_name_or_query_id=st.session_state[f"{page_id}_selected_query_id"],
                                                        query=st.session_state[f"{page_id}_selected_query"])
                                 ])
                             st.session_state[f"{page_id}_analysis_results"] = analysis_result
@@ -150,7 +150,7 @@ def main():
     st.set_page_config(page_title="Query History")
     page_id = 'query_history'
     # Initialize connections
-    _collector, _analyzer = initialize_connections(page_id)
+    _collector, _analyzer = initialize_connections(page_id, get_cache(1))
     render_query_history_view(page_id, _collector, _analyzer)
 
 

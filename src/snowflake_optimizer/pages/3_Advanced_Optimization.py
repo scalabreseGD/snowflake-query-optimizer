@@ -1,8 +1,9 @@
 import streamlit as st
 
 from snowflake_optimizer.connections import initialize_connections, setup_logging
-from snowflake_optimizer.query_analyzer import QueryAnalyzer, InputAnalysisModel
-from snowflake_optimizer.utils import display_query_comparison, init_common_states, create_results_expanders, \
+from snowflake_optimizer.models import InputAnalysisModel
+from snowflake_optimizer.query_analyzer import QueryAnalyzer
+from snowflake_optimizer.utils import init_common_states, create_results_expanders, \
     create_export_excel_from_results
 
 
@@ -44,7 +45,7 @@ def render_advanced_optimization_view(page_id, analyzer: QueryAnalyzer):
                     result = analyzer.analyze_query(
                         [InputAnalysisModel(
                             query=query,
-                            file_name='UI QUERY'
+                            file_name_or_query_id='UI QUERY'
                         )],
                         schema_info=schema_info if schema_info else None,
                         # partition_info=partition_info if partition_info else None,

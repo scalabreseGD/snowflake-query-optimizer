@@ -1,5 +1,5 @@
 """Module for collecting query performance data from Snowflake."""
-
+import json
 from typing import Dict, Any, Optional, Literal
 
 import pandas as pd
@@ -132,9 +132,15 @@ class QueryMetricsCollector:
             df = pd.read_sql(query, conn, params=[query_id])
         return df.to_dict(orient="records")
 
+    def get_query_operator_stats_by_query_id(self, query_id: str):
+        query = f"SELECT TO_JSON(*) as OPERATOR_STATS FROM (select ARRAY_AGG(OBJECT_CONSTRUCT(*)) from TABLE(GET_QUERY_OPERATOR_STATS('{query_id}')))"
+        res = self.snowpark_session.sql(query).collect()
+        operator_stats = res[0]['OPERATOR_STATS']
+        return operator_stats
+
     def compare_optimized_query_with_original(self, optimized_query, original_query_id):
         with SnowflakeTransaction(session=self.snowpark_session, action_on_complete='rollback'):
-            self.snowpark_session.sql(optimized_query).collect()
+            self.snowpark_session.sql(optimized_query).to_pandas()
             res = self.snowpark_session.sql("SELECT LAST_QUERY_ID()").collect()
             print()
 

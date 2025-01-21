@@ -8,7 +8,7 @@ import pandas as pd
 import sqlparse
 import streamlit as st
 
-from snowflake_optimizer.query_analyzer import OutputAnalysisModel
+from snowflake_optimizer.models import OutputAnalysisModel
 
 # Define SQL antipatterns with detailed categorization
 SQL_ANTIPATTERNS = {

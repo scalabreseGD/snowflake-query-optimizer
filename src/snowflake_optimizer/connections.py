@@ -7,6 +7,7 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import AzureOpenAI
 
+from snowflake_optimizer.cache import SQLiteCache, BaseCache
 from snowflake_optimizer.data_collector import QueryMetricsCollector
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 
@@ -42,7 +43,8 @@ def setup_logging():
     logging.debug(f"Log file created at: {log_file}")
 
 
-def initialize_connections(page_id) -> tuple[Optional[QueryMetricsCollector], Optional[QueryAnalyzer]]:
+def initialize_connections(page_id, cache: BaseCache = None) -> tuple[
+    Optional[QueryMetricsCollector], Optional[QueryAnalyzer]]:
     """Initialize connections to Snowflake and LLM services.
 
     Returns:
@@ -80,7 +82,8 @@ def initialize_connections(page_id) -> tuple[Optional[QueryMetricsCollector], Op
         if f'{page_id}_analyzer' not in st.session_state:
             analyzer = QueryAnalyzer(
                 openai_client=azure_openai_client,
-                openai_model=model_name
+                openai_model=model_name,
+                cache=cache
             )
             st.session_state[f'{page_id}_analyzer'] = analyzer
         else:
@@ -92,3 +95,7 @@ def initialize_connections(page_id) -> tuple[Optional[QueryMetricsCollector], Op
         analyzer = None
 
     return collector, analyzer
+
+
+def get_cache(seed=1):
+    return SQLiteCache("cache.db", seed=seed, default_ttl=600)

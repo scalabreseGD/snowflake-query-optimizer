@@ -1,15 +1,13 @@
-import io
 import json
 import os
-import traceback
-from typing import Optional, List, Dict
+from typing import Optional
 
-import pandas as pd
 import streamlit as st
 
 from snowflake_optimizer.connections import initialize_connections, setup_logging
-from snowflake_optimizer.query_analyzer import QueryAnalyzer, SchemaInfo, InputAnalysisModel
-from snowflake_optimizer.utils import format_sql, display_query_comparison, SQL_ANTIPATTERNS, split_sql_queries, \
+from snowflake_optimizer.models import SchemaInfo, InputAnalysisModel
+from snowflake_optimizer.query_analyzer import QueryAnalyzer
+from snowflake_optimizer.utils import format_sql, split_sql_queries, \
     init_common_states, create_results_expanders, create_export_excel_from_results
 
 
@@ -130,7 +128,7 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
                 for i, query in enumerate(queries):
                     print(f"Found valid query of length: {len(query)}")
                     all_queries.append(InputAnalysisModel(
-                        file_name=f"{sql_file.name} (Query {i + 1})",
+                        file_name_or_query_id=f"{sql_file.name} (Query {i + 1})",
                         query=format_sql(query),
                     ))
             print(f"Total queries found: {len(all_queries)}")
@@ -143,7 +141,7 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
                     query_batches = all_queries[query_index:query_index + max_parallel_call]
                     progress = query_index / len(all_queries)
                     progress_bar.progress(progress)
-                    status_text.markdown("Analyzing:\n * " + '\n* '.join([q.file_name for q in query_batches]))
+                    status_text.markdown("Analyzing:\n * " + '\n* '.join([q.file_name_or_query_id for q in query_batches]))
                     try:
                         batch_results.extend(analyzer.analyze_query(query_batches))
                     except Exception as e:
@@ -187,7 +185,7 @@ def __analyze_query_callback(page_id, analyzer: Optional[QueryAnalyzer]):
         print(f'Analyzing query of length: {len(st.session_state[f"{page_id}_formatted_query"])}')
         file_name = st.session_state.get(f"{page_id}_file_name", 'UI QUERY')
         result = analyzer.analyze_query(
-            [InputAnalysisModel(file_name=file_name, query=st.session_state[f"{page_id}_formatted_query"])],
+            [InputAnalysisModel(file_name_or_query_id=file_name, query=st.session_state[f"{page_id}_formatted_query"])],
             schema_info=st.session_state[f"{page_id}_schema_info"] if hasattr(st.session_state, 'schema_info') else None
         )[0]
         st.session_state[f"{page_id}_analysis_results"] = result['analysis']
