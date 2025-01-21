@@ -8,7 +8,8 @@ from dotenv import load_dotenv
 from snowflake_optimizer.connections import setup_logging, initialize_connections
 from snowflake_optimizer.data_collector import QueryMetricsCollector
 from snowflake_optimizer.query_analyzer import QueryAnalyzer, InputAnalysisModel
-from snowflake_optimizer.utils import format_sql, display_query_comparison, init_common_states
+from snowflake_optimizer.utils import format_sql, display_query_comparison, init_common_states, \
+    create_results_expanders, create_export_excel_from_results
 
 
 def render_query_history_view(page_id: str, collector: Optional[QueryMetricsCollector],
@@ -133,56 +134,16 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
                                 [
                                     InputAnalysisModel(file_name=st.session_state[f"{page_id}_selected_query_id"],
                                                        query=st.session_state[f"{page_id}_selected_query"])
-                                ])[0]
-                            st.session_state[f"{page_id}_analysis_results"] = analysis_result['analysis']
+                                ])
+                            st.session_state[f"{page_id}_analysis_results"] = analysis_result
                             logging.info("Query analysis completed successfully")
                         except Exception as e:
                             logging.error(f"Query analysis failed: {str(e)}")
                             st.error(f"Analysis failed: {str(e)}")
 
         if st.session_state[f"{page_id}_analysis_results"]:
-            st.subheader("Analysis Results")
-
-            # Log analysis results
-            logging.debug(f'Analysis results - Category: {st.session_state[f"{page_id}_analysis_results"].category}, '
-                          f'Complexity: {st.session_state[f"{page_id}_analysis_results"].complexity_score:.2f}')
-
-            # Display query category and complexity
-            st.info(f'Query Category: {st.session_state[f"{page_id}_analysis_results"].category}')
-            st.progress(st.session_state[f"{page_id}_analysis_results"].complexity_score,
-                        text=f'Complexity Score: {st.session_state[f"{page_id}_analysis_results"].complexity_score:.2f}')
-
-            # Display antipatterns
-            if st.session_state[f"{page_id}_analysis_results"].antipatterns:
-                logging.debug(
-                    f'Antipatterns detected: {len(st.session_state[f"{page_id}_analysis_results"].antipatterns)}')
-                st.warning("Antipatterns Detected:")
-                for pattern in st.session_state[f"{page_id}_analysis_results"].antipatterns:
-                    st.write(f"- {pattern}")
-
-            # Display suggestions
-            if st.session_state[f"{page_id}_analysis_results"].suggestions:
-                logging.debug(
-                    f'Optimization suggestions: {len(st.session_state[f"{page_id}_analysis_results"].suggestions)}')
-                st.info("Optimization Suggestions:")
-                for suggestion in st.session_state[f"{page_id}_analysis_results"].suggestions:
-                    st.write(f"- {suggestion}")
-
-            # Display optimized query
-            if st.session_state[f"{page_id}_analysis_results"].optimized_query:
-                logging.info("Optimized query generated")
-                st.success("Query Optimization Results")
-                st.session_state[f"{page_id}_formatted_query"] = format_sql(
-                    st.session_state[f"{page_id}_selected_query"])
-                display_query_comparison(
-                    st.session_state[f"{page_id}_formatted_query"],
-                    st.session_state[f"{page_id}_analysis_results"].optimized_query
-                )
-                if st.button("Copy Optimized Query"):
-                    st.session_state[f"{page_id}_clipboard"] = format_sql(
-                        st.session_state[f"{page_id}_analysis_results"].optimized_query)
-                    logging.debug("Optimized query copied to clipboard")
-                    st.success("Query copied to clipboard!")
+            create_results_expanders(st.session_state[f"{page_id}_analysis_results"])
+            create_export_excel_from_results(st.session_state[f"{page_id}_analysis_results"])
 
 
 def main():

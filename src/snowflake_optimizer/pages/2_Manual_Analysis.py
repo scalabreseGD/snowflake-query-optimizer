@@ -10,7 +10,7 @@ import streamlit as st
 from snowflake_optimizer.connections import initialize_connections, setup_logging
 from snowflake_optimizer.query_analyzer import QueryAnalyzer, SchemaInfo, InputAnalysisModel
 from snowflake_optimizer.utils import format_sql, display_query_comparison, SQL_ANTIPATTERNS, split_sql_queries, \
-    init_common_states
+    init_common_states, create_results_expanders, create_export_excel_from_results
 
 
 def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer]):
@@ -157,78 +157,13 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
             # Display results if available
             if st.session_state.get(f"{page_id}_batch_results"):
                 st.markdown("### Analysis Results")
-                for result in st.session_state[f"{page_id}_batch_results"]:
-                    with st.expander(f"Results for {result['filename']}"):
-                        st.code(result['original_query'], language="sql")
-                        st.info(f"Category: {result['analysis'].category}")
-                        st.progress(result['analysis'].complexity_score,
-                                    text=f"Complexity Score: {result['analysis'].complexity_score:.2f}")
-
-                        if result['analysis'].antipatterns:
-                            st.warning("Antipatterns:")
-                            for pattern in result['analysis'].antipatterns:
-                                st.write(f"- {pattern}")
-
-                        if result['analysis'].suggestions:
-                            st.info("Suggestions:")
-                            for suggestion in result['analysis'].suggestions:
-                                st.write(f"- {suggestion}")
-
-                        if result['analysis'].optimized_query:
-                            st.success("Optimized Query:")
-                            st.code(result['analysis'].optimized_query, language="sql")
-
-            # Export functionality in a separate section
-            if st.session_state.get(f"{page_id}_batch_results"):
-                st.markdown("### Export Results")
-                try:
-                    print("\n=== Export Button Clicked ===")
-                    print(f'Creating Excel report for {len(st.session_state[f"{page_id}_batch_results"])} results')
-                    excel_data = __create_excel_report(st.session_state[f"{page_id}_batch_results"])
-                    st.download_button(
-                        label="Download Excel Report",
-                        data=excel_data,
-                        file_name="query_analysis_report.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        key="download_excel"  # Add unique key
-                    )
-                except Exception as e:
-                    st.error(f"Failed to create Excel report: {str(e)}")
-                    print(f"Excel export error: {str(e)}")
-                    print(f"Traceback: {traceback.format_exc()}")
+                create_results_expanders(st.session_state[f"{page_id}_batch_results"])
+                create_export_excel_from_results(st.session_state[f"{page_id}_batch_results"])
 
     # Display analysis results if available
     if st.session_state.get(f"{page_id}_analysis_results"):
-        st.subheader("Analysis Results")
-
-        # Display query category and complexity
-        st.info(f'Query Category: {st.session_state[f"{page_id}_analysis_results"].category}')
-        st.progress(st.session_state[f"{page_id}_analysis_results"].complexity_score,
-                    text=f'Complexity Score: {st.session_state[f"{page_id}_analysis_results"].complexity_score:.2f}')
-
-        # Display antipatterns
-        if st.session_state[f"{page_id}_analysis_results"].antipatterns:
-            st.warning("Antipatterns Detected:")
-            for pattern in st.session_state[f"{page_id}_analysis_results"].antipatterns:
-                st.write(f"- {pattern}")
-
-        # Display suggestions
-        if st.session_state[f"{page_id}_analysis_results"].suggestions:
-            st.info("Optimization Suggestions:")
-            for suggestion in st.session_state[f"{page_id}_analysis_results"].suggestions:
-                st.write(f"- {suggestion}")
-
-        # Display optimized query
-        if st.session_state[f"{page_id}_analysis_results"].optimized_query:
-            st.success("Query Optimization Results")
-            display_query_comparison(
-                st.session_state[f"{page_id}_formatted_query"],
-                st.session_state[f"{page_id}_analysis_results"].optimized_query
-            )
-            if st.button("Copy Optimized Query"):
-                st.session_state[f"{page_id}_clipboard"] = format_sql(
-                    st.session_state[f"{page_id}_analysis_results"].optimized_query)
-                st.success("Query copied to clipboard!")
+        create_results_expanders(st.session_state[f"{page_id}_analysis_results"])
+        create_export_excel_from_results(st.session_state[f"{page_id}_analysis_results"])
 
 
 def __analyze_query_callback(page_id, analyzer: Optional[QueryAnalyzer]):
@@ -265,125 +200,6 @@ def __analyze_query_callback(page_id, analyzer: Optional[QueryAnalyzer]):
         print(f"Analysis failed: {str(e)}")
         st.error(f"Analysis failed: {str(e)}")
         st.session_state[f"{page_id}_analysis_results"] = None
-
-
-def __create_excel_report(batch_results: List[Dict]) -> bytes:
-    """Create Excel report from batch analysis results."""
-    if not batch_results:
-        raise ValueError("No results to export")
-
-    # Prepare data for each sheet
-    error_data = []
-    metric_data = []
-    optimization_data = []
-
-    for result in batch_results:
-        analysis = result['analysis']
-
-        # Add error patterns with detailed categorization
-        if analysis.antipatterns:
-            for pattern in analysis.antipatterns:
-                # Find matching antipattern code
-                pattern_code = None
-                pattern_details = None
-
-                for category, patterns in SQL_ANTIPATTERNS.items():
-                    for code, details in patterns.items():
-                        if any(detect.lower() in pattern.lower() for detect in details['detection']):
-                            pattern_code = code
-                            pattern_details = details
-                            break
-                    if pattern_code:
-                        break
-
-                if pattern_code:
-                    error_data.append({
-                        'Query': result['filename'],
-                        'Pattern Code': pattern_code,
-                        'Pattern Name': pattern_details['name'],
-                        'Category': category,
-                        'Description': pattern_details['description'],
-                        'Impact': pattern_details['impact'],
-                        'Details': pattern,
-                        'Suggestion': analysis.suggestions[0] if analysis.suggestions else 'None'
-                    })
-                else:
-                    # Fallback for unrecognized patterns
-                    error_data.append({
-                        'Query': result['filename'],
-                        'Pattern Code': 'UNK001',
-                        'Pattern Name': 'Unknown Pattern',
-                        'Category': 'Other',
-                        'Description': pattern,
-                        'Impact': 'Unknown',
-                        'Details': pattern,
-                        'Suggestion': analysis.suggestions[0] if analysis.suggestions else 'None'
-                    })
-
-        # Add metrics data
-        metric_data.append({
-            'Query': result['filename'],
-            'Category': analysis.category,
-            'Complexity': analysis.complexity_score,
-            'Confidence': analysis.confidence_score
-        })
-
-        # Add optimization data
-        optimization_data.append({
-            'Query': result['filename'],
-            'Original': result['original_query'],
-            'Optimized': analysis.optimized_query if analysis.optimized_query else 'No optimization needed',
-            'Suggestions': '\n'.join(analysis.suggestions) if analysis.suggestions else 'None'
-        })
-
-    # Create Excel file in memory
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        # Write error patterns sheet
-        if error_data:
-            pd.DataFrame(error_data).to_excel(writer, sheet_name='Errors', index=False)
-        else:
-            pd.DataFrame(
-                columns=['Query', 'Pattern Code', 'Pattern Name', 'Category', 'Description', 'Impact', 'Details',
-                         'Suggestion']).to_excel(writer, sheet_name='Errors', index=False)
-
-        # Write metrics sheet
-        if metric_data:
-            pd.DataFrame(metric_data).to_excel(writer, sheet_name='Metrics', index=False)
-        else:
-            pd.DataFrame(columns=['Query', 'Category', 'Complexity', 'Confidence']).to_excel(writer,
-                                                                                             sheet_name='Metrics',
-                                                                                             index=False)
-
-        # Write optimizations sheet
-        if optimization_data:
-            pd.DataFrame(optimization_data).to_excel(writer, sheet_name='Optimizations', index=False)
-        else:
-            pd.DataFrame(columns=['Query', 'Original', 'Optimized', 'Suggestions']).to_excel(writer,
-                                                                                             sheet_name='Optimizations',
-                                                                                             index=False)
-
-        # Auto-adjust column widths
-        for sheet_name in writer.sheets:
-            worksheet = writer.sheets[sheet_name]
-            for column in worksheet.columns:
-                max_length = 0
-                column = [cell for cell in column]
-                for cell in column:
-                    try:
-                        if len(str(cell.value)) > max_length:
-                            max_length = len(cell.value)
-                    except:
-                        pass
-                adjusted_width = (max_length + 2)
-                worksheet.column_dimensions[column[0].column_letter].width = min(adjusted_width,
-                                                                                 100)  # Cap width at 100
-
-    # Get the bytes value
-    excel_data = output.getvalue()
-    output.close()
-
-    return excel_data
 
 
 def main():

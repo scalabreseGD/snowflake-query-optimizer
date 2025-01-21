@@ -2,7 +2,8 @@ import streamlit as st
 
 from snowflake_optimizer.connections import initialize_connections, setup_logging
 from snowflake_optimizer.query_analyzer import QueryAnalyzer, InputAnalysisModel
-from snowflake_optimizer.utils import display_query_comparison, init_common_states
+from snowflake_optimizer.utils import display_query_comparison, init_common_states, create_results_expanders, \
+    create_export_excel_from_results
 
 
 def render_advanced_optimization_view(page_id, analyzer: QueryAnalyzer):
@@ -53,35 +54,16 @@ def render_advanced_optimization_view(page_id, analyzer: QueryAnalyzer):
                         # suggest_caching=suggest_caching,
                         # analyze_partitioning=analyze_partitioning
                     )
-
-                    if result:
-                        st.markdown("### Analysis Results")
-
-                        # Query Information
-                        st.markdown("#### Query Information")
-                        st.markdown(f"**Category:** {result.category}")
-                        st.markdown(f"**Confidence Score:** {result.confidence_score:.2f}")
-
-                        # Display comparisons
-                        display_query_comparison(query, result.optimized_query)
-
-                        # Antipatterns
-                        if result.antipatterns:
-                            st.markdown("#### Detected Antipatterns")
-                            for pattern in result.antipatterns:
-                                st.warning(pattern)
-
-                        # Optimization suggestions
-                        if result.suggestions:
-                            st.markdown("#### Optimization Suggestions")
-                            for suggestion in result.suggestions:
-                                st.info(suggestion)
-                    else:
-                        st.error("Failed to analyze query. Please try again.")
+                    st.session_state[f"{page_id}_analysis_results"] = result
             except Exception as e:
                 st.error(f"Analysis failed: {str(e)}")
         else:
             st.warning("Please enter a SQL query to analyze.")
+    if st.session_state.get(f"{page_id}_analysis_results"):
+        create_results_expanders(st.session_state[f"{page_id}_analysis_results"])
+        create_export_excel_from_results(st.session_state[f"{page_id}_analysis_results"])
+    else:
+        st.error("Failed to analyze query. Please try again.")
 
 
 def main():

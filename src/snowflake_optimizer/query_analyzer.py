@@ -56,6 +56,18 @@ class InputAnalysisModel(BaseModel):
     query: str
 
 
+class OutputAnalysisModel(BaseModel):
+    filename: str
+    original_query: str
+    analysis: QueryAnalysis
+
+    def __getitem__(self, item):
+        return getattr(self, item)
+
+    def __setitem__(self, key, value):
+        setattr(self, key, value)
+
+
 class AntiPattern(BaseModel):
     """Represents a SQL antipattern with its details."""
     code: str = Field(..., description="Antipattern code (e.g., FTS001)")
@@ -364,19 +376,21 @@ Do not include any other text in your response."""
             List of index suggestions
         """
         suggestions = []
-        parsed = parse_one(query)
+        try:
+            parsed = parse_one(query)
 
-        # Extract columns used in WHERE clauses and JOINs
-        # This is a simplified version - in practice, you'd want more sophisticated analysis
-        where_columns = set()
-        join_columns = set()
+            # Extract columns used in WHERE clauses and JOINs
+            # This is a simplified version - in practice, you'd want more sophisticated analysis
+            where_columns = set()
+            join_columns = set()
 
-        # Add suggestions based on findings
-        if where_columns:
-            suggestions.append(f"Consider adding indexes on filter columns: {', '.join(where_columns)}")
-        if join_columns:
-            suggestions.append(f"Consider adding indexes on join columns: {', '.join(join_columns)}")
-
+            # Add suggestions based on findings
+            if where_columns:
+                suggestions.append(f"Consider adding indexes on filter columns: {', '.join(where_columns)}")
+            if join_columns:
+                suggestions.append(f"Consider adding indexes on join columns: {', '.join(join_columns)}")
+        except Exception:
+            pass
         return suggestions
 
     def _suggest_clustering_keys(self, query: str, schema_info: Optional[SchemaInfo] = None) -> List[str]:
@@ -390,15 +404,14 @@ Do not include any other text in your response."""
             List of clustering key suggestions
         """
         suggestions = []
-        query_upper = query.upper()
-        parsed = parse_one(query)
-
-        # Extract columns from WHERE, ORDER BY, GROUP BY clauses
-        where_columns = set()
-        order_columns = set()
-        group_columns = set()
-
         try:
+            query_upper = query.upper()
+            parsed = parse_one(query)
+
+            # Extract columns from WHERE, ORDER BY, GROUP BY clauses
+            where_columns = set()
+            order_columns = set()
+            group_columns = set()
             # Extract table names and their filter conditions
             tables_and_filters = {}
 
@@ -1018,7 +1031,7 @@ Query to analyze:
         )
 
     def analyze_query(self, queries: List[InputAnalysisModel],
-                      schema_info: Optional[SchemaInfo] = None) -> List[Dict]:
+                      schema_info: Optional[SchemaInfo] = None) -> List[OutputAnalysisModel]:
 
         """Analyze a batch of queries in parallel using multi-threading.
 
@@ -1037,7 +1050,7 @@ Query to analyze:
         max_workers = min(32, len(queries), os.cpu_count())  # Cap at 32 threads
         print(f"Using {max_workers} worker threads")
 
-        def analyze_single_query(query_info: InputAnalysisModel) -> Optional[Dict]:
+        def analyze_single_query(query_info: InputAnalysisModel) -> Optional[OutputAnalysisModel]:
             try:
                 print(f"\nAnalyzing query from {query_info.file_name}")
                 analysis_result = self._analyze_query(
@@ -1047,11 +1060,11 @@ Query to analyze:
 
                 if analysis_result:
                     print(f"Analysis successful for {query_info.file_name}")
-                    return {
-                        "filename": query_info.file_name,
-                        "original_query": query_info.query,
-                        "analysis": analysis_result
-                    }
+                    return OutputAnalysisModel(
+                        filename=query_info.file_name,
+                        original_query=query_info.query,
+                        analysis=analysis_result
+                    )
                 print(f"No analysis result for {query_info.file_name}")
                 return None
 
