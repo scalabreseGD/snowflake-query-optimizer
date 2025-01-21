@@ -14,13 +14,10 @@ import pandas as pd
 import sqlparse
 import streamlit as st
 from dotenv import load_dotenv
-from openai import AzureOpenAI, OpenAI
-from trulens.core import TruSession
-from trulens.providers.openai import OpenAI as fOpenAI
+from openai import AzureOpenAI
 
 from snowflake_optimizer.data_collector import QueryMetricsCollector
 from snowflake_optimizer.query_analyzer import QueryAnalyzer, SchemaInfo
-from snowflake_optimizer.trulens_int import ChatApp, get_trulens_app
 
 
 # Configure logging
@@ -50,22 +47,6 @@ def setup_logging():
     # Log initial application startup
     logging.info("Snowflake Query Optimizer application started")
     logging.debug(f"Log file created at: {log_file}")
-
-
-def setup_dashboard(llm_client: OpenAI, llm_model: str = None,
-                    evaluator_llm_client: fOpenAI = None, evaluator_model: str = None):
-    if 'tru_session' not in st.session_state:
-        session = TruSession()
-        session.start_dashboard(port=8502, force=True)
-        session.reset_database()
-        st.session_state['tru_session'] = session
-
-    if 'tru_chat' not in st.session_state:
-        chat = ChatApp(llm_client=llm_client, llm_model=llm_model,
-                       evaluator_llm_client=evaluator_llm_client, evaluator_model=evaluator_model)
-        st.session_state['tru_chat'] = chat
-        tru_app = get_trulens_app(chat, chat.get_feedbacks())
-        st.session_state['tru_app'] = tru_app
 
 
 # Set up logging
@@ -240,27 +221,17 @@ def initialize_connections() -> tuple[Optional[QueryMetricsCollector], Optional[
         api_key = st.secrets['API_KEY']
         api_version = st.secrets['API_VERSION']
         api_endpoint = st.secrets['API_ENDPOINT']
-        model_name = deployment_name = st.secrets['DEPLOYMENT_NAME']
+        model_name = st.secrets['DEPLOYMENT_NAME']
         azure_openai_client = AzureOpenAI(azure_endpoint=api_endpoint,
                                           api_key=api_key,
                                           api_version=api_version,
                                           )
-
-        api_eval_key = st.secrets['API_EVAL_KEY']
-        api_eval_base_url = st.secrets['API_EVAL_BASE_URL']
-        eval_model_name = st.secrets['API_EVAL_MODEL_NAME']
-        eval_openai_client = fOpenAI(base_url=api_eval_base_url, api_key=api_eval_key, model_engine=eval_model_name)
-
-        # Start Trulens Dashboard
-        setup_dashboard(azure_openai_client, model_name, eval_openai_client, eval_model_name)
         logging.debug("Initializing Query Analyzer")
         logging.debug(f"API key length: {len(api_key)}")
         if 'analyzer' not in st.session_state:
             analyzer = QueryAnalyzer(
                 openai_client=azure_openai_client,
-                openai_model=model_name,
-                tru_chat=st.session_state['tru_chat'],
-                tru_app=st.session_state['tru_app']
+                openai_model=model_name
             )
             st.session_state['analyzer'] = analyzer
         else:
@@ -1316,8 +1287,8 @@ def analyze_query_batch(queries: List[Dict], analyzer: QueryAnalyzer, schema_inf
     print(f"\nBatch analysis completed. Total results: {len(results)}")
     return results
 
-def compare_query(collector):
 
+def compare_query(collector):
     query_id = '01b9d4ef-0a08-cfb7-0000-5f21c984fa8e'
     optimized = """
     SELECT count(*) AS cnt,
@@ -1416,7 +1387,7 @@ def main():
 
     # Initialize connections
     collector, analyzer = initialize_connections()
-    compare_query(collector)
+    # compare_query(collector)
 
     # Mode selection
     mode = st.sidebar.radio(

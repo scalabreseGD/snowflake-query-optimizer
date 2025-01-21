@@ -6,7 +6,6 @@ from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
 import sqlparse
-import streamlit as st
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from sqlglot import parse_one, exp
@@ -80,17 +79,11 @@ class QueryAnalyzer:
 
     def __init__(
             self, openai_client: OpenAI,
-                 openai_model: str,
-                 tru_chat=None,
-                 tru_app=None):
+            openai_model: str):
         """Initialize the analyzer with API credentials."""
         # Initialize Anthropic client
         self.client = openai_client
         self.model = openai_model
-
-        self.chat = tru_chat
-        #
-        self.tru_app = tru_app
 
         # System message for consistent JSON responses
         self.system_message = {
@@ -182,23 +175,19 @@ Query to analyze:
 {{query}}"""
 
     def __run_chat_completion(self, user_prompt, system_prompt=None, **chat_kwargs):
-        if self.tru_app:
-            with self.tru_app:
-                return self.chat.chat(user_prompt, **chat_kwargs)
-        else:
-            messages = []
-            if system_prompt:
-                messages.append({
-                    "role": "system",
-                    "content": system_prompt}
-                )
-            messages.append({'role': 'user', 'content': user_prompt})
+        messages = []
+        if system_prompt:
+            messages.append({
+                "role": "system",
+                "content": system_prompt}
+            )
+        messages.append({'role': 'user', 'content': user_prompt})
 
-            return self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                **chat_kwargs
-            ).choices[0].message.content
+        return self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            **chat_kwargs
+        ).choices[0].message.content
 
     def _parse_and_validate(self, query: str, max_retries: int = 3) -> bool:
         """Validate SQL query syntax and attempt repair if needed.
@@ -383,7 +372,6 @@ Do not include any other text in your response."""
 
         return suggestions
 
-    
     def _suggest_clustering_keys(self, query: str, schema_info: Optional[SchemaInfo] = None) -> List[str]:
         """Suggest clustering keys for better query performance.
 
@@ -422,7 +410,6 @@ Do not include any other text in your response."""
 
         return suggestions
 
-    
     def _suggest_materialized_views(self, query: str, schema_info: Optional[SchemaInfo] = None) -> List[str]:
         """Suggest materialized views for query optimization.
 
@@ -452,7 +439,6 @@ Do not include any other text in your response."""
 
         return suggestions
 
-    
     def _suggest_search_optimization(self, query: str) -> List[str]:
         """Suggest search optimization service usage.
 
@@ -475,7 +461,6 @@ Do not include any other text in your response."""
 
         return suggestions
 
-    
     def _suggest_caching_strategy(self, query: str) -> List[str]:
         """Suggest query result caching strategies.
 
@@ -597,7 +582,6 @@ Do not include any other text in your response."""
         except Exception as e:
             return False, f"Schema validation failed: {str(e)}"
 
-    
     def _generate_optimized_query(self, query: str, improvements: List[str],
                                   schema_info: Optional[SchemaInfo] = None) -> Optional[str]:
         """Generate optimized query based on suggested improvements."""
@@ -800,7 +784,6 @@ The optimized query must return exactly the same results as the original."""
                 "complexity_score": 0.5
             }
 
-    
     def _get_antipatterns(self, query: str) -> List[dict]:
         """Get antipatterns using a focused prompt."""
         antipattern_prompt = f"""Analyze this SQL query for antipatterns.
@@ -858,7 +841,6 @@ Query to analyze:
             print(f"Error getting antipatterns: {str(e)}")
             return []
 
-    
     def _get_suggestions(self, query: str) -> List[str]:
         """Get optimization suggestions using a focused prompt."""
         suggestion_prompt = f"""Analyze this SQL query and suggest optimizations.
@@ -888,7 +870,6 @@ Query to analyze:
             print(f"Error getting suggestions: {str(e)}")
             return []
 
-    
     def _get_complexity(self, query: str) -> float:
         """Get complexity score using a focused prompt."""
         complexity_prompt = f"""Analyze this SQL query's complexity.
@@ -916,7 +897,6 @@ Query to analyze:
             print(f"Error getting complexity: {str(e)}")
             return 0.5
 
-    
     def _get_category(self, query: str) -> Tuple[QueryCategory, str]:
         """Get query category using a focused prompt."""
         category_prompt = f"""Analyze this SQL query and determine its category.
@@ -952,7 +932,6 @@ Query to analyze:
         except Exception as e:
             print(f"Error getting category: {str(e)}")
             return QueryCategory.UNKNOWN, ""
-
 
     def analyze_query(
             self,
