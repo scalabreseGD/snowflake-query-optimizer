@@ -160,7 +160,8 @@ class QueryMetricsCollector(SnowflakeDataCollector):
             table_catalog, table_schema, table_name = object_name.split('.')
             # desc_query = f"""DESC TABLE {object_name}"""
             desc_query = f"""
-                SELECT OBJECT_AGG(COLUMN_NAME, DATA_TYPE::VARIANT) as table_schema FROM SNOWFLAKE.ACCOUNT_USAGE.COLUMNS 
+                SELECT OBJECT_AGG(COLUMN_NAME, DATA_TYPE::VARIANT) as table_schema
+                FROM SNOWFLAKE.ACCOUNT_USAGE.COLUMNS 
                 WHERE 
                 TABLE_CATALOG = '{table_catalog}' AND
                 TABLE_SCHEMA = '{table_schema}' AND
@@ -260,7 +261,6 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
         optimized_query_df = self.execute_query_in_transaction(
             snowpark_job=lambda session: gather_query_data(optimized_query, session))
         optimized_query_df = optimized_query_df[num_columns]
-        # Select only numerical columns
         # Compute the differences
         diff_values = optimized_query_df[num_columns].iloc[0] - original_query_df[num_columns].iloc[0]
         return original_query_df, optimized_query_df, diff_values.to_frame().transpose()
