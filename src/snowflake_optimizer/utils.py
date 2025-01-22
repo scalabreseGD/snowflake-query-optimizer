@@ -324,7 +324,8 @@ def __create_excel_report(batch_results: List[OutputAnalysisModel]) -> bytes:
             pd.DataFrame(error_data).to_excel(writer, sheet_name='Errors', index=False)
         else:
             pd.DataFrame(
-                columns=['Query', 'Pattern Code', 'Pattern Name', 'Category', 'Description', 'Impact', 'Details',]).to_excel(writer, sheet_name='Errors', index=False)
+                columns=['Query', 'Pattern Code', 'Pattern Name', 'Category', 'Description', 'Impact',
+                         'Details', ]).to_excel(writer, sheet_name='Errors', index=False)
 
         # Write metrics sheet
         if metric_data:
@@ -417,6 +418,35 @@ def display_query_comparison(original: str, optimized: str):
     # except Exception as e:
     #     print(f"Failed to create or display diff: {str(e)}")
     #     st.error("Failed to display query differences")
+
+
+def show_performance_difference(result_df: pd.DataFrame, difference_df: pd.DataFrame):
+    def style_dataframe(df):
+        def style_value(value):
+            if value > 0:
+                return f"<span style='color:green;'>{value}</span>"
+            elif value < 0:
+                return f"<span style='color:red;'>{value}</span>"
+            return value
+
+        # Apply conditional formatting to all numeric values in the DataFrame
+        styled_df = df.applymap(
+            lambda x: style_value(x) if isinstance(x, (int, float)) else x
+        )
+        return styled_df
+
+    st.dataframe(result_df)
+    df_to_print = style_dataframe(difference_df)
+    st.markdown(
+        """
+        This table displays positive numbers in **green** and negative numbers in **red**:
+        """
+    )
+
+    # Display the DataFrame in Streamlit with markdown styling
+    st.markdown(
+        df_to_print.to_html(escape=False, index=False), unsafe_allow_html=True
+    )
 
 
 def format_sql(query: str) -> str:

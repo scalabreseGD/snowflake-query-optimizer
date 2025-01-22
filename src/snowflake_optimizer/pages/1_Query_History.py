@@ -12,7 +12,8 @@ from snowflake_optimizer.utils import format_sql, init_common_states, \
     create_results_expanders, create_export_excel_from_results
 
 
-def render_query_history_view(page_id: str, collector: Optional[QueryMetricsCollector],
+def render_query_history_view(page_id: str,
+                              collector: Optional[QueryMetricsCollector],
                               analyzer: Optional[QueryAnalyzer]):
     """Render the query history analysis view.
 

@@ -931,13 +931,6 @@ Query to analyze:
             # Get query category
             category, category_explanation = self._get_category(query)
 
-            # Generate optimized query with validation
-            optimized_query = self._generate_optimized_query(
-                query,
-                suggestions if suggestions else ["Optimize query structure and performance"],
-                schema_info
-            )
-
             # Get Snowflake-specific suggestions
             try:
                 clustering_suggestions = self._suggest_clustering_keys(query, schema_info)
@@ -957,6 +950,12 @@ Query to analyze:
                 all_suggestions = suggestions
                 materialization_suggestions = []
 
+            # Generate optimized query with validation
+            optimized_query = self._generate_optimized_query(
+                query,
+                all_suggestions if all_suggestions else ["Optimize query structure and performance"],
+                schema_info
+            )
         except Exception as e:
             print(f"Error in analysis: {str(e)}")
             # Fall back to basic analysis
