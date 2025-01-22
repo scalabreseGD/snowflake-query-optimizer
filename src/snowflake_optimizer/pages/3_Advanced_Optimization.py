@@ -1,6 +1,7 @@
 import streamlit as st
 
-from snowflake_optimizer.connections import initialize_connections, setup_logging, get_snowflake_query_executor
+from snowflake_optimizer.connections import initialize_connections, setup_logging, get_snowflake_query_executor, \
+    get_cache
 from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
 from snowflake_optimizer.models import InputAnalysisModel
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
@@ -74,7 +75,7 @@ def main():
     st.set_page_config(page_title="Advanced Optimization")
     page_id = 'advanced_optimization'
     # Initialize connections
-    _collector, _analyzer = initialize_connections(page_id)
+    _collector, _analyzer = initialize_connections(page_id, get_cache(1))
     executor = get_snowflake_query_executor()
     render_advanced_optimization_view(page_id, _analyzer, executor)
 

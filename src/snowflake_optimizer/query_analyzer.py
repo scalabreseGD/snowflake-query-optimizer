@@ -140,7 +140,8 @@ Query to analyze:
                 messages=messages,
                 **chat_kwargs
             ).choices[0].message.content
-            self.cache.set(json.dumps(messages), results)
+            if self.cache:
+                self.cache.set(json.dumps(messages), results)
             return results
 
     def _parse_and_validate(self, query: str, max_retries: int = 3) -> bool:

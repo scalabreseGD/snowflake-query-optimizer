@@ -4,7 +4,8 @@ from typing import Optional
 
 import streamlit as st
 
-from snowflake_optimizer.connections import initialize_connections, setup_logging, get_snowflake_query_executor
+from snowflake_optimizer.connections import initialize_connections, setup_logging, get_snowflake_query_executor, \
+    get_cache
 from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
 from snowflake_optimizer.models import SchemaInfo, InputAnalysisModel
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
@@ -191,8 +192,8 @@ def __analyze_query_callback(page_id, analyzer: Optional[QueryAnalyzer]):
         result = analyzer.analyze_query(
             [InputAnalysisModel(file_name_or_query_id=file_name, query=st.session_state[f"{page_id}_formatted_query"])],
             schema_info=st.session_state[f"{page_id}_schema_info"] if hasattr(st.session_state, 'schema_info') else None
-        )[0]
-        st.session_state[f"{page_id}_analysis_results"] = result['analysis']
+        )
+        st.session_state[f"{page_id}_analysis_results"] = result
         print("Analysis completed successfully")
 
         # Store the analyzed query for comparison
@@ -208,7 +209,7 @@ def main():
     st.set_page_config(page_title="Manual Analysis")
     page_id = 'manual_analysis'
     # Initialize connections
-    _collector, _analyzer = initialize_connections(page_id)
+    _collector, _analyzer = initialize_connections(page_id, get_cache(1))
     executor = get_snowflake_query_executor()
     render_manual_analysis_view(page_id, _analyzer, executor)
 
