@@ -129,11 +129,6 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
                     
                     with st.expander(f"Query_id: {selected_row['query_id']}"):
                         st.code(format_sql(selected_row['query_text']), language="sql")
-                        st.markdown("#### Impacted objects")
-                        impacted_objects = collector.get_impacted_objects(
-                                                selected_row['query_id']
-                                            )
-                        st.dataframe(impacted_objects)
 
                 if st.button("Analyze Query"):
                     if analyzer:
