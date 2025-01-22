@@ -391,10 +391,11 @@ def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, op
     result_columns = st.columns([0.1, 0.8, 0.1])
     with result_columns[1]:
         if st.button('Compare Original and Optimized'):
-            original_query_df, optimized_query_df, difference_df = executor.compare_optimized_query_with_original(
-                optimized_query=optimized,
-                original_query=original)
-            show_performance_difference(original_query_df, optimized_query_df, difference_df)
+            with st.spinner("Comparing original and optimized queries..."):
+                original_query_df, optimized_query_df, difference_df = executor.compare_optimized_query_with_original(
+                    optimized_query=optimized,
+                    original_query=original)
+                show_performance_difference(original_query_df, optimized_query_df, difference_df)
 
     # Show diff below
     # st.markdown("### Changes")
