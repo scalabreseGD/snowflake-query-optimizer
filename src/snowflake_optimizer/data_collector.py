@@ -1,6 +1,7 @@
 """Module for collecting query performance data from Snowflake."""
 import json
-from typing import Dict, Any, Optional, Literal
+import time
+from typing import Dict, Any, Optional, Literal, Callable
 import collections
 import pandas as pd
 import streamlit
@@ -139,7 +140,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
             , lateral flatten(base_objects_accessed) boa
             where query_id = '{query_id}'
             and  boa.value:"objectDomain"::string='Table';"""
-        with _self.engine.connect() as conn:
+        with _self._engine.connect() as conn:
             df = pd.read_sql(query, conn)
         return df
     
@@ -168,7 +169,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 AND DELETED IS NULL;
                 """
             try:
-                with _self.engine.connect() as conn:
+                with _self._engine.connect() as conn:
                     desc_dict = pd.read_sql(desc_query, conn).to_dict(orient="records") 
                     metadata[object_name]["table_schema"] = desc_dict
             except:
