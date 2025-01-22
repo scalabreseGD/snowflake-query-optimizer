@@ -6,7 +6,8 @@ from typing import Dict, Any, Optional, Literal, Callable
 import pandas as pd
 import streamlit
 from snowflake.snowpark import Session, DataFrame
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
 
 
 class SnowflakeDataCollector:
@@ -171,7 +172,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
             try:
                 with _self._engine.connect() as conn:
                     desc_dict = pd.read_sql(desc_query, conn).to_dict(orient="records")
-                    metadata[object_name]["table_schema"] = desc_dict
+                    metadata[object_name]["table_schema"] = desc_dict[0]
             except:
                 print(f"No metadata for object: {object_name} in SNOWFLAKE.ACCOUNT_USAGE.COLUMNS")
             try:
@@ -184,9 +185,9 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                     table_schema = '{table_schema}' AND
                     table_catalog = '{table_catalog}';
                     """
-                with _self.engine.connect() as conn:
+                with _self._engine.connect() as conn:
                     metadata_dict = pd.read_sql(query, conn).to_dict(orient="records")
-                    metadata[object_name]["metadata"] = metadata_dict
+                    metadata[object_name]["metadata"] = metadata_dict[0]
             except:
                 print(f"No metadata for object: {object_name} in SNOWFLAKE.ACCOUNT_USAGE.TABLES")
         return dict(metadata)
@@ -264,6 +265,14 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
         # Compute the differences
         diff_values = optimized_query_df[num_columns].iloc[0] - original_query_df[num_columns].iloc[0]
         return original_query_df, optimized_query_df, diff_values.to_frame().transpose()
+
+    def compile_query(self, query) -> Optional[str]:
+        try:
+            with self._engine.connect() as conn:
+                conn.execute(text(f'EXPLAIN {query}')).fetchone()
+                return None
+        except ProgrammingError as e:
+            return ''.join(e.orig.args)
 
 
 class SnowflakeSessionTransaction:

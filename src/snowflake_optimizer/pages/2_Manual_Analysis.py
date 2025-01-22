@@ -10,7 +10,7 @@ from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
 from snowflake_optimizer.models import SchemaInfo, InputAnalysisModel
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 from snowflake_optimizer.utils import format_sql, split_sql_queries, \
-    init_common_states, create_results_expanders, create_export_excel_from_results
+    init_common_states, create_results_expanders, create_export_excel_from_results, evaluate_or_repair_query
 
 
 def render_manual_analysis_view(page_id: str,
@@ -153,6 +153,9 @@ def render_manual_analysis_view(page_id: str,
                         st.error(f"Failed to analyze the Batch: {e}")
 
                 batch_results = sorted(batch_results, key=lambda res: res['filename'])
+                batch_results = [evaluate_or_repair_query(output_analysis=result,
+                                                          executor=executor,
+                                                          analyzer=analyzer) for result in batch_results]
 
                 st.session_state[f"{page_id}_batch_results"] = batch_results
                 status_text.text("Analysis complete!")
@@ -165,8 +168,14 @@ def render_manual_analysis_view(page_id: str,
 
     # Display analysis results if available
     if st.session_state.get(f"{page_id}_analysis_results"):
-        create_results_expanders(executor, st.session_state[f"{page_id}_analysis_results"])
-        create_export_excel_from_results(st.session_state[f"{page_id}_analysis_results"])
+        results = st.session_state[f"{page_id}_analysis_results"]
+        results = [evaluate_or_repair_query(output_analysis=result,
+                                            executor=executor,
+                                            analyzer=analyzer) for result in results]
+        st.session_state[f"{page_id}_analysis_results"] = results
+
+        create_results_expanders(executor, results)
+        create_export_excel_from_results(results)
 
 
 def __analyze_query_callback(page_id, analyzer: Optional[QueryAnalyzer]):

@@ -10,7 +10,7 @@ from snowflake_optimizer.data_collector import QueryMetricsCollector, SnowflakeQ
 from snowflake_optimizer.models import InputAnalysisModel
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 from snowflake_optimizer.utils import format_sql, init_common_states, \
-    create_results_expanders, create_export_excel_from_results
+    create_results_expanders, create_export_excel_from_results, evaluate_or_repair_query
 
 
 def render_query_history_view(page_id: str,
@@ -129,7 +129,7 @@ def render_query_history_view(page_id: str,
             if len(row['selection']['rows']) > 0:
                 for i in row['selection']['rows']:
                     selected_row = query_history.iloc[i]
-                    
+
                     with st.expander(f"Query_id: {selected_row['query_id']}"):
                         st.code(format_sql(selected_row['query_text']), language="sql")
 
@@ -142,11 +142,11 @@ def render_query_history_view(page_id: str,
                             for i in row['selection']['rows']:
                                 selected_row = query_history.iloc[i]
                                 impacted_objects = collector.get_impacted_objects(
-                                                        selected_row['query_id']
-                                                    )
+                                    selected_row['query_id']
+                                )
                                 objects_metadata = collector.get_impacted_objects_metadata(
-                                            impacted_objects
-                                    )
+                                    impacted_objects
+                                )
                                 all_queries.append(InputAnalysisModel(
                                     file_name_or_query_id=selected_row['query_id'],
                                     query=format_sql(selected_row['query_text']),
@@ -163,10 +163,12 @@ def render_query_history_view(page_id: str,
                                     st.error(f"Failed to analyze the Batch: {e}")
 
                             batch_results = sorted(batch_results, key=lambda res: res['filename'])
+                            batch_results = [evaluate_or_repair_query(output_analysis=result,
+                                                                      executor=executor,
+                                                                      analyzer=analyzer) for result in batch_results]
 
                             st.session_state[f"{page_id}_analysis_results"] = batch_results
                             status_text.text("Analysis completed!")
-
 
         if st.session_state[f"{page_id}_analysis_results"]:
             st.markdown("### Analysis Results")

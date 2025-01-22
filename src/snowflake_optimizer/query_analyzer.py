@@ -11,7 +11,7 @@ from sqlglot import parse_one, exp
 
 from snowflake_optimizer.cache import BaseCache
 from snowflake_optimizer.models import SchemaInfo, QueryCategory, QueryAnalysis, InputAnalysisModel, OutputAnalysisModel
-from snowflake_optimizer.utils import SQL_ANTIPATTERNS
+from snowflake_optimizer.constants import SQL_ANTIPATTERNS
 
 
 class QueryAnalyzer:
@@ -201,7 +201,7 @@ Query to analyze:
             except Exception:
                 return False
 
-    def _repair_query(self, query: str, error_message: str = None) -> Optional[str]:
+    def repair_query(self, query: str, error_message: str = None) -> Optional[str]:
         """Attempt to repair an invalid SQL query using LLM."""
         repair_prompt = """You are a SQL repair expert. The following query is invalid:
 {query}
@@ -1033,15 +1033,7 @@ Query to analyze:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks and get futures
             futures = [executor.submit(analyze_single_query, query_info) for query_info in queries]
-            # future_to_query = {
-            #     executor.submit(analyze_single_query, query_info): query_info
-            #     for query_info in queries
-            # }
-
-            # Process completed futures as they finish
-            # for future in as_completed(future_to_query):
             for future in as_completed(futures):
-                # query_info = future_to_query[future]
                 try:
                     result = future.result()
                     if result:

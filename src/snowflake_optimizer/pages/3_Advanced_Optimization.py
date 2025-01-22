@@ -6,7 +6,7 @@ from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
 from snowflake_optimizer.models import InputAnalysisModel
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 from snowflake_optimizer.utils import init_common_states, create_results_expanders, \
-    create_export_excel_from_results
+    create_export_excel_from_results, evaluate_or_repair_query
 
 
 def render_advanced_optimization_view(page_id,
@@ -65,8 +65,14 @@ def render_advanced_optimization_view(page_id,
         else:
             st.warning("Please enter a SQL query to analyze.")
     if st.session_state.get(f"{page_id}_analysis_results"):
-        create_results_expanders(executor, st.session_state[f"{page_id}_analysis_results"])
-        create_export_excel_from_results(st.session_state[f"{page_id}_analysis_results"])
+        results = st.session_state[f"{page_id}_analysis_results"]
+        results = [evaluate_or_repair_query(output_analysis=result,
+                                            executor=executor,
+                                            analyzer=analyzer) for result in results]
+        st.session_state[f"{page_id}_analysis_results"] = results
+
+        create_results_expanders(executor, results)
+        create_export_excel_from_results(results)
     else:
         st.error("Failed to analyze query. Please try again.")
 
