@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 
 from pydantic import BaseModel, Field
 
@@ -46,7 +46,7 @@ class QueryAnalysis:
 class InputAnalysisModel(BaseModel):
     file_name_or_query_id: str
     query: str
-    table_metadata: Optional[Dict] = Field(default=None, descroption="Metadata of objects accessed by query")
+    table_metadata: Optional[Dict[str, Any]] = Field(default=None, description="Metadata of objects accessed by query")
     operator_stats: Optional[str] = Field(default=None, description="Operator Stats to be added in the prompt"
                                                                     "When file_name contains query_id")
 

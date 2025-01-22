@@ -1,4 +1,5 @@
 import difflib
+import hashlib
 import io
 import logging
 import traceback
@@ -391,7 +392,7 @@ def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, op
         st.code(formatted_optimized, language="sql")
     result_columns = st.columns([0.1, 0.8, 0.1])
     with result_columns[1]:
-        if st.button('Compare Original and Optimized', key=str(uuid.uuid4())):
+        if st.button('Compare Original and Optimized', key=hashlib.sha256(original.encode()).hexdigest()[:32]):
             with st.spinner("Comparing original and optimized queries..."):
                 original_query_df, optimized_query_df, difference_df = executor.compare_optimized_query_with_original(
                     optimized_query=optimized,

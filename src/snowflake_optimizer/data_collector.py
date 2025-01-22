@@ -1,12 +1,11 @@
 """Module for collecting query performance data from Snowflake."""
-import json
+import collections
 import time
 from typing import Dict, Any, Optional, Literal, Callable
-import collections
+
 import pandas as pd
 import streamlit
 from snowflake.snowpark import Session, DataFrame
-from snowflake.snowpark.functions import expr, lit
 from sqlalchemy import create_engine
 
 
@@ -121,9 +120,9 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 conn
             )
         return df
-    
+
     @streamlit.cache_data(show_spinner=False)
-    def get_impacted_objects(_self, query_id:str) -> Dict[str, Any]:
+    def get_impacted_objects(_self, query_id: str) -> pd.DataFrame:
         """
         Fetch impacted objects metadata by query_id
 
@@ -143,7 +142,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
         with _self._engine.connect() as conn:
             df = pd.read_sql(query, conn)
         return df
-    
+
     @streamlit.cache_data(show_spinner=False)
     def get_impacted_objects_metadata(_self, impacted_objects: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -156,7 +155,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
             Dictionary containing the objects metadata
         """
         metadata = collections.defaultdict(dict)
-        for _,row in impacted_objects.iterrows():
+        for _, row in impacted_objects.iterrows():
             object_name = row.iloc[0]
             table_catalog, table_schema, table_name = object_name.split('.')
             # desc_query = f"""DESC TABLE {object_name}"""
@@ -170,11 +169,11 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 """
             try:
                 with _self._engine.connect() as conn:
-                    desc_dict = pd.read_sql(desc_query, conn).to_dict(orient="records") 
+                    desc_dict = pd.read_sql(desc_query, conn).to_dict(orient="records")
                     metadata[object_name]["table_schema"] = desc_dict
             except:
                 print(f"No metadata for object: {object_name} in SNOWFLAKE.ACCOUNT_USAGE.COLUMNS")
-            try:   
+            try:
                 table_catalog, table_schema, table_name = object_name.split('.')
                 query = f"""
                     SELECT ROW_COUNT, BYTES, CLUSTERING_KEY, AUTO_CLUSTERING_ON, TABLE_TYPE
@@ -186,7 +185,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                     """
                 with _self.engine.connect() as conn:
                     metadata_dict = pd.read_sql(query, conn).to_dict(orient="records")
-                    metadata[object_name]["metadata"] = metadata_dict 
+                    metadata[object_name]["metadata"] = metadata_dict
             except:
                 print(f"No metadata for object: {object_name} in SNOWFLAKE.ACCOUNT_USAGE.TABLES")
         return dict(metadata)
@@ -206,18 +205,6 @@ class QueryMetricsCollector(SnowflakeDataCollector):
             df = pd.read_sql(query, conn, params=[query_id])
         return df.to_dict(orient="records")
 
-    # def get_query_operator_stats_by_query_id(self, query_id: str):
-    #     query = f"SELECT TO_JSON(*) as OPERATOR_STATS FROM (select ARRAY_AGG(OBJECT_CONSTRUCT(*)) from TABLE(GET_QUERY_OPERATOR_STATS('{query_id}')))"
-    #     res = self.snowpark_session_generator().sql(query).collect()
-    #     operator_stats = res[0]['OPERATOR_STATS']
-    #     return operator_stats
-    #
-    # def compare_optimized_query_with_original(self, optimized_query, original_query_id):
-    #     with SnowflakeTransaction(session=self.snowpark_session, action_on_complete='rollback'):
-    #         self.snowpark_session.sql(optimized_query).to_pandas()
-    #         res = self.snowpark_session.sql("SELECT LAST_QUERY_ID()").collect()
-    #         print()
-
 
 class SnowflakeQueryExecutor(SnowflakeDataCollector):
     def execute_query_in_transaction(self, query: str = None,
@@ -233,7 +220,7 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
                 raise ValueError('No query or snowpark_job specified')
 
     def compare_optimized_query_with_original(self, optimized_query, original_query) -> (
-    pd.DataFrame, pd.DataFrame, pd.DataFrame):
+            pd.DataFrame, pd.DataFrame, pd.DataFrame):
 
         def gather_query_data(query: str, session: Session):
             async_job = session.sql(query).collect(block=False)
