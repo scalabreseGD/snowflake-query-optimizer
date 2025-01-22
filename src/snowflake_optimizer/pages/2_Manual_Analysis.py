@@ -4,14 +4,17 @@ from typing import Optional
 
 import streamlit as st
 
-from snowflake_optimizer.connections import initialize_connections, setup_logging
+from snowflake_optimizer.connections import initialize_connections, setup_logging, get_snowflake_query_executor
+from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
 from snowflake_optimizer.models import SchemaInfo, InputAnalysisModel
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 from snowflake_optimizer.utils import format_sql, split_sql_queries, \
     init_common_states, create_results_expanders, create_export_excel_from_results
 
 
-def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer]):
+def render_manual_analysis_view(page_id: str,
+                                analyzer: Optional[QueryAnalyzer],
+                                executor: Optional[SnowflakeQueryExecutor]):
     """Render the manual query analysis view."""
     print("\n=== Starting Manual Analysis View ===")
     st.header("Manual Query Analysis")
@@ -141,7 +144,8 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
                     query_batches = all_queries[query_index:query_index + max_parallel_call]
                     progress = query_index / len(all_queries)
                     progress_bar.progress(progress)
-                    status_text.markdown("Analyzing:\n * " + '\n* '.join([q.file_name_or_query_id for q in query_batches]))
+                    status_text.markdown(
+                        "Analyzing:\n * " + '\n* '.join([q.file_name_or_query_id for q in query_batches]))
                     try:
                         batch_results.extend(analyzer.analyze_query(query_batches))
                     except Exception as e:
@@ -155,12 +159,12 @@ def render_manual_analysis_view(page_id: str, analyzer: Optional[QueryAnalyzer])
             # Display results if available
             if st.session_state.get(f"{page_id}_batch_results"):
                 st.markdown("### Analysis Results")
-                create_results_expanders(st.session_state[f"{page_id}_batch_results"])
+                create_results_expanders(executor, st.session_state[f"{page_id}_batch_results"])
                 create_export_excel_from_results(st.session_state[f"{page_id}_batch_results"])
 
     # Display analysis results if available
     if st.session_state.get(f"{page_id}_analysis_results"):
-        create_results_expanders(st.session_state[f"{page_id}_analysis_results"])
+        create_results_expanders(executor, st.session_state[f"{page_id}_analysis_results"])
         create_export_excel_from_results(st.session_state[f"{page_id}_analysis_results"])
 
 
@@ -205,7 +209,8 @@ def main():
     page_id = 'manual_analysis'
     # Initialize connections
     _collector, _analyzer = initialize_connections(page_id)
-    render_manual_analysis_view(page_id, _analyzer)
+    executor = get_snowflake_query_executor()
+    render_manual_analysis_view(page_id, _analyzer, executor)
 
 
 main()

@@ -1,10 +1,11 @@
 """Module for collecting query performance data from Snowflake."""
 import json
+import time
 from typing import Dict, Any, Optional, Literal, Callable
 
 import pandas as pd
 import streamlit
-from snowflake.snowpark import Session
+from snowflake.snowpark import Session, DataFrame
 from snowflake.snowpark.functions import expr, lit
 from sqlalchemy import create_engine
 
@@ -150,57 +151,56 @@ class QueryMetricsCollector(SnowflakeDataCollector):
 
 
 class SnowflakeQueryExecutor(SnowflakeDataCollector):
-    def execute_query_in_transaction(self, query: str):
+    def execute_query_in_transaction(self, query: str = None,
+                                     snowpark_job: Callable[[Session], Any] = None,
+                                     action_on_complete: Literal["commit", "rollback"] = 'rollback') -> DataFrame:
         with SnowflakeSessionTransaction(session_gen=self._snowpark_session_generator,
-                                         action_on_complete='rollback') as session:
-            res = session.sql(query).to_pandas()
-        return res
+                                         action_on_complete=action_on_complete) as session:
+            if query:
+                return session.sql(query)
+            elif snowpark_job:
+                return snowpark_job(session)
+            else:
+                raise ValueError('No query or snowpark_job specified')
 
-    def compare_optimized_query_with_original(self, optimized_query, original_query_id) -> (pd.DataFrame, pd.DataFrame):
+    def compare_optimized_query_with_original(self, optimized_query, original_query) -> (
+    pd.DataFrame, pd.DataFrame, pd.DataFrame):
 
-        with SnowflakeSessionTransaction(session_gen=self._snowpark_session_generator,
-                                         action_on_complete='rollback') as session:
-            # Trigger just the query without gathering the results
-            async_job = session.sql(optimized_query).collect(block=False)
-            # last_query_id = session.sql('SELECT LAST_QUERY_ID() as QUERY_ID').first()['QUERY_ID']
-            last_query_id = async_job.query_id
-
-            original_query_id_df = session.sql(
-                f"""
-                SELECT        
-                        QUERY_ID,
-                        QUERY_TEXT,
-                        TOTAL_ELAPSED_TIME / 1000 AS EXECUTION_TIME_SECONDS,
-                        BYTES_SCANNED / 1024 / 1024 AS MB_SCANNED,
-                        ROWS_PRODUCED,
-                        COMPILATION_TIME / 1000 AS COMPILATION_TIME_SECONDS
-                FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
-                WHERE QUERY_ID = '{original_query_id}'""".lstrip()).to_pandas()
-            last_query_id_df = pd.DataFrame()
-            while last_query_id_df.empty:
-                last_query_df_qh = session.sql(
-                    f"""
-                    select  
-                            QUERY_ID,
-                            QUERY_TEXT,
-                            TOTAL_ELAPSED_TIME / 1000 AS EXECUTION_TIME_SECONDS,
-                            BYTES_SCANNED / 1024 / 1024 AS MB_SCANNED,
-                            ROWS_PRODUCED,
-                            COMPILATION_TIME / 1000 AS COMPILATION_TIME_SECONDS
-                    from table(INFORMATION_SCHEMA.QUERY_HISTORY_BY_SESSION({session.session_id})) 
-                    where query_id = '{last_query_id}' 
-                    and END_TIME IS NOT NULL
-                    """.lstrip()
+        def gather_query_data(query: str, session: Session):
+            async_job = session.sql(query).collect(block=False)
+            query_id = async_job.query_id
+            async_def_job = pd.DataFrame()
+            while async_def_job.empty:
+                query_df_qh = session.sql(
+                    f""" select  
+                                        QUERY_ID,
+                                        QUERY_TEXT,
+                                        TOTAL_ELAPSED_TIME / 1000 AS EXECUTION_TIME_SECONDS,
+                                        BYTES_SCANNED / 1024 / 1024 AS MB_SCANNED,
+                                        ROWS_PRODUCED,
+                                        COMPILATION_TIME / 1000 AS COMPILATION_TIME_SECONDS
+                                from table(INFORMATION_SCHEMA.QUERY_HISTORY_BY_SESSION({session.session_id})) 
+                                where query_id = '{query_id}' 
+                                and END_TIME IS NOT NULL
+                                """.lstrip()
                 ).to_pandas()
-                if last_query_df_qh.shape[0] > 0:
-                    last_query_id_df = last_query_df_qh
-        result_df = pd.concat([original_query_id_df, last_query_id_df], ignore_index=True)
-        # Select only numerical columns
-        num_columns = original_query_id_df.select_dtypes(include=['number']).columns
+                if query_df_qh.shape[0] > 0:
+                    async_def_job = query_df_qh
+                else:
+                    time.sleep(3)
+                return async_def_job
 
+        original_query_df = self.execute_query_in_transaction(
+            snowpark_job=lambda session: gather_query_data(original_query, session))
+        num_columns = original_query_df.select_dtypes(include=['number']).columns
+        original_query_df = original_query_df[num_columns]
+        optimized_query_df = self.execute_query_in_transaction(
+            snowpark_job=lambda session: gather_query_data(optimized_query, session))
+        optimized_query_df = optimized_query_df[num_columns]
+        # Select only numerical columns
         # Compute the differences
-        diff_values = original_query_id_df[num_columns].iloc[0] - last_query_id_df[num_columns].iloc[0]
-        return result_df, diff_values.to_frame()
+        diff_values = optimized_query_df[num_columns].iloc[0] - original_query_df[num_columns].iloc[0]
+        return original_query_df, optimized_query_df, diff_values.to_frame().transpose()
 
 
 class SnowflakeSessionTransaction:

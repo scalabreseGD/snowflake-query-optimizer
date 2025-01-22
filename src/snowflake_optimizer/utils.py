@@ -8,6 +8,7 @@ import pandas as pd
 import sqlparse
 import streamlit as st
 
+from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
 from snowflake_optimizer.models import OutputAnalysisModel
 
 # Define SQL antipatterns with detailed categorization
@@ -199,9 +200,9 @@ def init_common_states(page_id):
         st.session_state[f"{page_id}_clipboard"] = None
 
 
-def create_results_expanders(results: List[OutputAnalysisModel]):
+def create_results_expanders(executor: SnowflakeQueryExecutor, results: List[OutputAnalysisModel]):
     for result in results:
-        with st.expander(f"Results for {result['filename']}"):
+        with st.expander(f"Results for {result['filename']}", expanded=len(results) == 1):
             st.code(result['original_query'], language="sql")
             logging.debug(f'Analysis results - Category: {result["analysis"].category}, '
                           f'Complexity: {result["analysis"].complexity_score:.2f}')
@@ -226,6 +227,7 @@ def create_results_expanders(results: List[OutputAnalysisModel]):
                 st.success("Optimized Query:")
 
                 display_query_comparison(
+                    executor,
                     result.original_query,
                     result.analysis.optimized_query
                 )
@@ -366,7 +368,7 @@ def __create_excel_report(batch_results: List[OutputAnalysisModel]) -> bytes:
     return excel_data
 
 
-def display_query_comparison(original: str, optimized: str):
+def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, optimized: str):
     """Display a side-by-side comparison of original and optimized queries."""
     if not original or not optimized:
         print("Missing query for comparison!")
@@ -386,6 +388,13 @@ def display_query_comparison(original: str, optimized: str):
         st.markdown("**Optimized Query**")
         formatted_optimized = format_sql(optimized)
         st.code(formatted_optimized, language="sql")
+    result_columns = st.columns[0.1, 0.8, 0.1]
+    with result_columns[1]:
+        if st.button('Compare Original and Optimized'):
+            original_query_df, optimized_query_df, difference_df = executor.compare_optimized_query_with_original(
+                optimized_query=optimized,
+                original_query=original)
+            show_performance_difference(original_query_df, optimized_query_df, difference_df)
 
     # Show diff below
     # st.markdown("### Changes")
@@ -420,33 +429,22 @@ def display_query_comparison(original: str, optimized: str):
     #     st.error("Failed to display query differences")
 
 
-def show_performance_difference(result_df: pd.DataFrame, difference_df: pd.DataFrame):
-    def style_dataframe(df):
-        def style_value(value):
-            if value > 0:
-                return f"<span style='color:green;'>{value}</span>"
-            elif value < 0:
-                return f"<span style='color:red;'>{value}</span>"
-            return value
+def show_performance_difference(original_query_df: pd.DataFrame, optimized_query_df: pd.DataFrame,
+                                difference_df: pd.DataFrame):
+    st.markdown("### Performance Difference")
+    st.markdown("### Original Query")
+    st.dataframe(original_query_df)
+    st.markdown("### Optimized Query")
+    st.dataframe(optimized_query_df)
 
-        # Apply conditional formatting to all numeric values in the DataFrame
-        styled_df = df.applymap(
-            lambda x: style_value(x) if isinstance(x, (int, float)) else x
-        )
-        return styled_df
-
-    st.dataframe(result_df)
-    df_to_print = style_dataframe(difference_df)
-    st.markdown(
-        """
-        This table displays positive numbers in **green** and negative numbers in **red**:
-        """
-    )
-
-    # Display the DataFrame in Streamlit with markdown styling
-    st.markdown(
-        df_to_print.to_html(escape=False, index=False), unsafe_allow_html=True
-    )
+    difference_records = difference_df.to_dict(orient='records')[0]
+    for column_name, column_value in difference_records.items():
+        if column_value < 0:
+            st.success(f"{column_name}: {column_value}")
+        elif column_value == 0:
+            st.warning(f"{column_name}: {column_value}")
+        else:
+            st.error(f"{column_name}: {column_value}")
 
 
 def format_sql(query: str) -> str:

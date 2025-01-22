@@ -152,39 +152,8 @@ Query to analyze:
 Provide the analysis in the exact JSON format specified above."""
 
 
-
-def compare_query(collector):
-    query_id = '01b9dd5c-0b08-c7d9-0000-5f21c9d206da'
-    optimized = """
-    SELECT c.member_id,
-       CASE
-           WHEN a.member_distribution_value < 0.1 THEN 'TEST'
-           ELSE 'TREATMENT'
-       END AS ml_split
-FROM idh_prod.d_cust.customer c
-LEFT JOIN ids_prod.cust.brand_member_analytic_attribute a ON c.member_id = a.member_id
-AND a.brand_id = 'arbys'
-WHERE c.member_id IS NOT NULL
-    AND c.brand_id = 'arbys'
-    AND c.source_system_name = 'loyalty'
-    AND c.member_status_code NOT IN ('C',
-                                     'D')
-    AND ((c.email_id IS NOT NULL
-          AND c.email_id <> '')
-         OR (c.mobile_nbr IS NOT NULL
-             AND c.mobile_nbr <> ''))
-    """
-    executor = get_snowflake_query_executor()
-    result_df, difference_df = executor.compare_optimized_query_with_original(optimized_query=optimized, original_query_id=query_id)
-    show_performance_difference(result_df, difference_df)
-    # collector.get_query_operator_stats_by_query_id(query_id)
-    # collector.compare_optimized_query_with_original(optimized, query_id)
-
-
 def main():
     """Main function to run the Streamlit application."""
-    collector, analyzer = initialize_connections('app')
-    compare_query(collector)
     logging.info("Starting main application")
     st.title("Snowflake Query Optimizer")
     st.write("Analyze and optimize your Snowflake SQL queries")
