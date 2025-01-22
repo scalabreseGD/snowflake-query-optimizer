@@ -96,7 +96,7 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
                 page_size=page_size,
                 page=st.session_state[f"{page_id}_current_page"]
             )
-            st.info("Select a query from the dataframe below clicking on the left of the table")
+            st.info("Select queries from the dataframe below clicking on the left of the table")
             row = st.dataframe(
                 query_history[[
                     "query_id",
@@ -122,33 +122,8 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
 
     with st.container():
         if st.session_state[f"{page_id}_selected_query"]:
-            st.markdown("### Selected Query")
-            if len(row['selection']['rows']) == 1:
-                st.code(st.session_state[f"{page_id}_selected_query"], language="sql")
-
-                st.markdown("#### Impacted objects")
-                st.session_state.impacted_objects = collector.get_impacted_objects(
-                                        st.session_state[f"{page_id}_selected_query_id"]
-                                    )
-                st.dataframe(st.session_state.impacted_objects[["table_name"]])
-
-                if st.button("Analyze Query"):
-                    if analyzer:
-                        if len(all_queries) <= 1:
-                            logging.info("Starting query analysis")
-                            with st.spinner("Analyzing query..."):
-                                try:
-                                    analysis_result = analyzer.analyze_query(
-                                        [
-                                            InputAnalysisModel(file_name_or_query_id=st.session_state[f"{page_id}_selected_query_id"],
-                                                            query=st.session_state[f"{page_id}_selected_query"])
-                                        ])
-                                    st.session_state[f"{page_id}_analysis_results"] = analysis_result
-                                    logging.info("Query analysis completed successfully")
-                                except Exception as e:
-                                    logging.error(f"Query analysis failed: {str(e)}")
-                                    st.error(f"Analysis failed: {str(e)}")
-            if len(row['selection']['rows']) > 1:
+            st.markdown("### Selected Queries")
+            if len(row['selection']['rows']) > 0:
                 for i in row['selection']['rows']:
                     selected_row = query_history.iloc[i]
                     
@@ -164,6 +139,7 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
                     if analyzer:
                         logging.info("Starting query analysis")
                         with st.spinner("Analyzing queries..."):
+                            status_text = st.empty()
                             all_queries = []
                             for i in row['selection']['rows']:
                                 selected_row = query_history.iloc[i]
@@ -183,9 +159,6 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
                             batch_results = []
                             for query_index in range(0, len(all_queries), max_parallel_call):
                                 query_batches = all_queries[query_index:query_index + max_parallel_call]
-                                # progress = query_index / len(all_queries)
-                                # progress_bar.progress(progress)
-                                # status_text.markdown("Analyzing:\n * " + '\n* '.join([q.file_name_or_query_id for q in query_batches]))
                                 try:
                                     batch_results.extend(analyzer.analyze_query(query_batches))
                                 except Exception as e:
@@ -194,7 +167,7 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
                             batch_results = sorted(batch_results, key=lambda res: res['filename'])
 
                             st.session_state[f"{page_id}_analysis_results"] = batch_results
-                            # status_text.text("Analysis completed!")
+                            status_text.text("Analysis completed!")
 
 
         if st.session_state[f"{page_id}_analysis_results"]:
