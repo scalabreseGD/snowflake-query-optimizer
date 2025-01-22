@@ -434,6 +434,7 @@ def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, op
 
 def show_performance_difference(original_query_df: pd.DataFrame, optimized_query_df: pd.DataFrame,
                                 difference_df: pd.DataFrame):
+    minimum_expected_columns = ['EXECUTION_TIME_SECONDS', 'MB_SCANNED', 'ROWS_PRODUCED', 'COMPILATION_TIME_SECONDS']
     st.markdown("### Performance Difference")
     st.markdown("### Original Query")
     st.dataframe(original_query_df)
@@ -441,13 +442,19 @@ def show_performance_difference(original_query_df: pd.DataFrame, optimized_query
     st.dataframe(optimized_query_df)
 
     difference_records = difference_df.to_dict(orient='records')[0]
-    for column_name, column_value in difference_records.items():
-        if column_value < 0:
-            st.success(f"{column_name}: {column_value}")
-        elif column_value == 0:
-            st.warning(f"{column_name}: {column_value}")
-        else:
-            st.error(f"{column_name}: {column_value}")
+    if all([key in minimum_expected_columns for key in difference_records.keys()]):
+        for column_name, column_value in difference_records.items():
+            if column_value < 0:
+                if column_name != 'ROWS_PRODUCED':
+                    st.success(f"{column_name}: {column_value}")
+                else:
+                    st.error(f"{column_name}: {column_value}")
+            elif column_value == 0:
+                st.warning(f"{column_name}: {column_value}")
+            else:
+                st.error(f"{column_name}: {column_value}")
+    else:
+        raise ValueError(f'{minimum_expected_columns} is missing in {difference_records.keys()}')
 
 
 def format_sql(query: str) -> str:

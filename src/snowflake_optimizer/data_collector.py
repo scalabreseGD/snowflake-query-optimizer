@@ -222,10 +222,12 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
     def compare_optimized_query_with_original(self, optimized_query, original_query) -> (
             pd.DataFrame, pd.DataFrame, pd.DataFrame):
 
-        def gather_query_data(query: str, session: Session):
+        def gather_query_data(query: str, session: Session, waiting_timeout_in_secs=300):
             async_job = session.sql(query).collect(block=False)
+            start_time = time.time()
             query_id = async_job.query_id
             async_def_job = pd.DataFrame()
+            retry_seconds = 5
             while async_def_job.empty:
                 query_df_qh = session.sql(
                     f""" select  
@@ -234,17 +236,22 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
                                         TOTAL_ELAPSED_TIME / 1000 AS EXECUTION_TIME_SECONDS,
                                         BYTES_SCANNED / 1024 / 1024 AS MB_SCANNED,
                                         ROWS_PRODUCED,
-                                        COMPILATION_TIME / 1000 AS COMPILATION_TIME_SECONDS
+                                        COMPILATION_TIME / 1000 AS COMPILATION_TIME_SECONDS,
+                                        EXECUTION_STATUS
                                 from table(INFORMATION_SCHEMA.QUERY_HISTORY_BY_SESSION({session.session_id})) 
                                 where query_id = '{query_id}' 
-                                and END_TIME IS NOT NULL
+                                and EXECUTION_STATUS = 'SUCCESS'
                                 """.lstrip()
                 ).to_pandas()
                 if query_df_qh.shape[0] > 0:
                     async_def_job = query_df_qh
                 else:
-                    time.sleep(3)
-                return async_def_job
+                    end_time = time.time()
+                    if end_time - start_time > waiting_timeout_in_secs:
+                        raise TimeoutError(f'Evaluation ran for more than {waiting_timeout_in_secs}')
+                    time.sleep(retry_seconds)
+                    retry_seconds *= 2
+            return async_def_job
 
         original_query_df = self.execute_query_in_transaction(
             snowpark_job=lambda session: gather_query_data(original_query, session))

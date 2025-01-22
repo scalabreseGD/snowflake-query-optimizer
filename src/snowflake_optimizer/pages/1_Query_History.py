@@ -112,9 +112,9 @@ def render_query_history_view(page_id: str,
                 selection_mode="multi-row",
             )
             prev_col, space_col, next_col = st.columns([1, 3, 1])
-            if prev_col.button("Previous") and st.session_state['current_page'] > 0:
+            if prev_col.button("Previous") and st.session_state[f"{page_id}_current_page"] > 0:
                 st.session_state['current_page'] -= 1
-            if next_col.button("Next") and st.session_state['current_page'] < total_pages - 1:
+            if next_col.button("Next") and st.session_state[f"{page_id}_current_page"] < total_pages - 1:
                 st.session_state['current_page'] += 1
             if len(row['selection']['rows']) > 0:
                 selected_item = row['selection']['rows'][0]

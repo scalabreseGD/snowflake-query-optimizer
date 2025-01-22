@@ -1,7 +1,6 @@
 """Module for analyzing and optimizing SQL queries using LLMs."""
 
 import json
-import sqlite3
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional, Tuple
