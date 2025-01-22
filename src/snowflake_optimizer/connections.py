@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from openai import AzureOpenAI
 
 from snowflake_optimizer.cache import SQLiteCache, BaseCache
-from snowflake_optimizer.data_collector import QueryMetricsCollector
+from snowflake_optimizer.data_collector import QueryMetricsCollector, SnowflakeQueryExecutor
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 
 load_dotenv()
@@ -95,6 +95,23 @@ def initialize_connections(page_id, cache: BaseCache = None) -> tuple[
         analyzer = None
 
     return collector, analyzer
+
+
+def get_snowflake_query_executor():
+    try:
+        snowflake_executor = SnowflakeQueryExecutor(
+            account=st.secrets["SNOWFLAKE_ACCOUNT"],
+            user=st.secrets["SNOWFLAKE_USER"],
+            password=st.secrets["SNOWFLAKE_PASSWORD"],
+            warehouse=st.secrets["SNOWFLAKE_WAREHOUSE"],
+            database=st.secrets.get("SNOWFLAKE_DATABASE"),
+            schema=st.secrets.get("SNOWFLAKE_SCHEMA"),
+        )
+    except Exception as e:
+        logging.error(f"Failed to connect to Snowflake: {str(e)}")
+        st.error(f"Failed to connect to Snowflake: {str(e)}")
+        snowflake_executor = None
+    return snowflake_executor
 
 
 def get_cache(seed=1):

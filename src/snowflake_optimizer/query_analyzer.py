@@ -140,7 +140,8 @@ Query to analyze:
                 messages=messages,
                 **chat_kwargs
             ).choices[0].message.content
-            self.cache.set(json.dumps(messages), results)
+            if self.cache:
+                self.cache.set(json.dumps(messages), results)
             return results
 
     def _parse_and_validate(self, query: str, max_retries: int = 3) -> bool:
@@ -940,13 +941,6 @@ Query to analyze:
             # Get query category
             category, category_explanation = self._get_category(query)
 
-            # Generate optimized query with validation
-            optimized_query = self._generate_optimized_query(
-                query,
-                suggestions if suggestions else ["Optimize query structure and performance"],
-                table_metadata,
-                schema_info,
-            )
 
             # Get Snowflake-specific suggestions
             try:
@@ -967,6 +961,13 @@ Query to analyze:
                 all_suggestions = suggestions
                 materialization_suggestions = []
 
+            # Generate optimized query with validation
+            optimized_query = self._generate_optimized_query(
+                query,
+                all_suggestions if all_suggestions else ["Optimize query structure and performance"],
+                table_metadata,
+                schema_info
+            )
         except Exception as e:
             print(f"Error in analysis: {str(e)}")
             # Fall back to basic analysis

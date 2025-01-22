@@ -4,22 +4,26 @@ from typing import Optional
 import streamlit as st
 from dotenv import load_dotenv
 
-from snowflake_optimizer.connections import setup_logging, initialize_connections, get_cache
-from snowflake_optimizer.data_collector import QueryMetricsCollector
+from snowflake_optimizer.connections import setup_logging, initialize_connections, get_cache, \
+    get_snowflake_query_executor
+from snowflake_optimizer.data_collector import QueryMetricsCollector, SnowflakeQueryExecutor
 from snowflake_optimizer.models import InputAnalysisModel
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 from snowflake_optimizer.utils import format_sql, init_common_states, \
     create_results_expanders, create_export_excel_from_results
 
 
-def render_query_history_view(page_id: str, collector: Optional[QueryMetricsCollector],
-                              analyzer: Optional[QueryAnalyzer]):
+def render_query_history_view(page_id: str,
+                              collector: Optional[QueryMetricsCollector],
+                              analyzer: Optional[QueryAnalyzer],
+                              executor: Optional[SnowflakeQueryExecutor]):
     """Render the query history analysis view.
 
     Args:
         page_id (str): The ID of the page to render.
         collector: QueryMetricsCollector instance
         analyzer: QueryAnalyzer instance
+        executor: SnowflakeQueryExecutor instance
     """
 
     # Set up logging
@@ -37,8 +41,7 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
     st.header("Query History Analysis")
 
     # Sidebar configuration
-    with st.sidebar:
-        st.header("History Configuration")
+    with st.expander("History Configuration", expanded=True):
         days = st.slider(
             "Days to analyze",
             min_value=1,
@@ -168,6 +171,7 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
         if st.session_state[f"{page_id}_analysis_results"]:
             st.markdown("### Analysis Results")
             create_results_expanders(st.session_state[f"{page_id}_analysis_results"])
+            create_results_expanders(executor, st.session_state[f"{page_id}_analysis_results"])
             create_export_excel_from_results(st.session_state[f"{page_id}_analysis_results"])
 
 
@@ -176,7 +180,8 @@ def main():
     page_id = 'query_history'
     # Initialize connections
     _collector, _analyzer = initialize_connections(page_id, get_cache(1))
-    render_query_history_view(page_id, _collector, _analyzer)
+    executor = get_snowflake_query_executor()
+    render_query_history_view(page_id, _collector, _analyzer, executor)
 
 
 main()

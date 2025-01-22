@@ -1,13 +1,17 @@
 import streamlit as st
 
-from snowflake_optimizer.connections import initialize_connections, setup_logging
+from snowflake_optimizer.connections import initialize_connections, setup_logging, get_snowflake_query_executor, \
+    get_cache
+from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
 from snowflake_optimizer.models import InputAnalysisModel
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 from snowflake_optimizer.utils import init_common_states, create_results_expanders, \
     create_export_excel_from_results
 
 
-def render_advanced_optimization_view(page_id, analyzer: QueryAnalyzer):
+def render_advanced_optimization_view(page_id,
+                                      analyzer: QueryAnalyzer,
+                                      executor: SnowflakeQueryExecutor):
     """Render the advanced optimization view."""
     st.markdown("## Advanced Optimization Mode")
     setup_logging()
@@ -61,7 +65,7 @@ def render_advanced_optimization_view(page_id, analyzer: QueryAnalyzer):
         else:
             st.warning("Please enter a SQL query to analyze.")
     if st.session_state.get(f"{page_id}_analysis_results"):
-        create_results_expanders(st.session_state[f"{page_id}_analysis_results"])
+        create_results_expanders(executor, st.session_state[f"{page_id}_analysis_results"])
         create_export_excel_from_results(st.session_state[f"{page_id}_analysis_results"])
     else:
         st.error("Failed to analyze query. Please try again.")
@@ -71,8 +75,9 @@ def main():
     st.set_page_config(page_title="Advanced Optimization")
     page_id = 'advanced_optimization'
     # Initialize connections
-    _collector, _analyzer = initialize_connections(page_id)
-    render_advanced_optimization_view(page_id, _analyzer)
+    _collector, _analyzer = initialize_connections(page_id, get_cache(1))
+    executor = get_snowflake_query_executor()
+    render_advanced_optimization_view(page_id, _analyzer, executor)
 
 
 main()

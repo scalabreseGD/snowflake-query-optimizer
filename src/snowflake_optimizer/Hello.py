@@ -1,17 +1,14 @@
 """Main Streamlit application for Snowflake Query Optimizer."""
 
-import io
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional, List, Dict, Any
+from typing import List, Dict
 
-import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
-from snowflake_optimizer.connections import setup_logging, initialize_connections
-from snowflake_optimizer.query_analyzer import QueryAnalyzer, SchemaInfo
-from snowflake_optimizer.utils import format_sql, display_query_comparison
+from snowflake_optimizer.connections import initialize_connections, get_snowflake_query_executor
+from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
+from snowflake_optimizer.utils import show_performance_difference
 
 # Load environment variables
 load_dotenv()
@@ -155,103 +152,8 @@ Query to analyze:
 Provide the analysis in the exact JSON format specified above."""
 
 
-
-def compare_query(collector):
-    query_id = '01b9d4ef-0a08-cfb7-0000-5f21c984fa8e'
-    optimized = """
-    SELECT count(*) AS cnt,
-       'CRM' AS env
-FROM
-    (SELECT DISTINCT 'arbys' AS brand_id,
-                     'sfmc' AS source_system_name,
-                     account_id,
-                     job_id,
-                     subscriber_key,
-                     external_id,
-                     customer_id,
-                     offer_id,
-                     batch_id,
-                     list_id,
-                     creative_variant,
-                     event_date,
-                     offer_code,
-                     sub_id,
-                     triggered_send_id,
-                     error_code,
-                     datasource_name,
-                     email_address,
-                     offer_name,
-                     parent_offer_id,
-                     journey_name,
-                     journey_step,
-                     user_defined_segment_1,
-                     user_defined_segment_2,
-                     user_defined_segment_3,
-                     user_defined_segment_4,
-                     user_defined_segment_5,
-                     offer_decision_logic,
-                     email_name,
-                     campaign_id,
-                     to_varchar(mdt_created_on, 'YYYYMMDD')::INTEGER AS load_id,
-                     split_part(mdt_filename, '/', -1) AS load_filename
-     FROM crm.arbys.sfmc_sendlog)
-UNION ALL
-SELECT count(*) AS cnt,
-       'IDS' AS env
-FROM
-    (SELECT DISTINCT brand_id,
-                     source_system_name,
-                     account_id,
-                     job_id,
-                     subscriber_key,
-                     profile_id,
-                     external_id,
-                     customer_id,
-                     offer_id,
-                     batch_id,
-                     list_id,
-                     creative_variant,
-                     event_dttm,
-                     offer_code,
-                     subscriber_id,
-                     triggered_send_external_key,
-                     error_code,
-                     datasource_name,
-                     email_address,
-                     offer_name,
-                     parent_offer_id,
-                     journey_name,
-                     journey_step,
-                     strength_of_customer,
-                     user_defined_segment_1,
-                     user_defined_segment_2,
-                     user_defined_segment_3,
-                     user_defined_segment_4,
-                     user_defined_segment_5,
-                     offer_decision_logic,
-                     offer_1_decision_logic,
-                     point_balance,
-                     email_name,
-                     campaign_id,
-                     campaign_name,
-                     campaign_type,
-                     campaign_category_type,
-                     campaign_description,
-                     campaign_objective,
-                     campaign_start_date,
-                     campaign_end_date,
-                     campaign_duration,
-                     load_filename
-     FROM ids_qa.cust.crm_campaign_send_log_arbys);
-    """
-    collector.get_query_operator_stats_by_query_id(query_id)
-    # collector.compare_optimized_query_with_original(optimized, query_id)
-
-
 def main():
     """Main function to run the Streamlit application."""
-    collector, analyzer = initialize_connections('app')
-    compare_query(collector)
     logging.info("Starting main application")
     st.title("Snowflake Query Optimizer")
     st.write("Analyze and optimize your Snowflake SQL queries")
