@@ -549,7 +549,7 @@ Do not include any other text in your response."""
     Columns: {', '.join(col['name'] for col in schema_info.columns)}
     """
 
-        metadata_context = f"Metadata dictionary as a reference for analysis: {table_metadata}" if table_metadata else ""
+        metadata_context = f"Metadata dictionary as a reference for analysis:\n{table_metadata}" if table_metadata else ""
 
         # Filter out infrastructure-level suggestions
         query_level_improvements = [
@@ -806,7 +806,7 @@ Query to analyze:
 
     def _get_suggestions(self, query: str, identified_antipatterns: List[str] = None, objects_metadata: Optional[str] = None) -> List[str]:
         """Get optimization suggestions using a focused prompt."""
-        metadata_context = f"Metadata dictionary as a reference for analysis: {objects_metadata}" if objects_metadata else ""
+        metadata_context = f"Metadata dictionary as a reference for analysis:\n{objects_metadata}" if objects_metadata else ""
 
         if identified_antipatterns is not None:
             antipatterns_prompt = 'The query contains the following antipatterns:\n' + '\n'.join(identified_antipatterns)
