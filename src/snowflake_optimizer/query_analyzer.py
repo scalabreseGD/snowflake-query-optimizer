@@ -537,7 +537,7 @@ Do not include any other text in your response."""
         except Exception as e:
             return False, f"Schema validation failed: {str(e)}"
 
-    def _generate_optimized_query(self, query: str, improvements: List[str],
+    def _generate_optimized_query(self, query: str, improvements: List[str], table_metadata: Optional[str] = None,
                                   schema_info: Optional[SchemaInfo] = None) -> Optional[str]:
         """Generate optimized query based on suggested improvements."""
         # Add schema information to the prompt if available
@@ -547,6 +547,8 @@ Do not include any other text in your response."""
     Table: {schema_info.table_name}
     Columns: {', '.join(col['name'] for col in schema_info.columns)}
     """
+
+        metadata_context = f"Metadata dictionary as a reference for analysis: {table_metadata}" if table_metadata else ""
 
         # Filter out infrastructure-level suggestions
         query_level_improvements = [
@@ -575,6 +577,7 @@ Focus on query-level optimizations such as:
 Apply these specific improvements:
 {improvements}
 
+{metadata_context}
 {schema_context}
 
 Original query:
@@ -592,7 +595,8 @@ The optimized query must return exactly the same results as the original."""
                 user_prompt=generation_prompt.format(
                     query=query,
                     improvements="\n".join(f"- {imp}" for imp in query_level_improvements),
-                    schema_context=schema_context
+                    schema_context=schema_context,
+                    metadata_context=metadata_context
                 ),
                 max_tokens=2048,
             )
@@ -799,8 +803,10 @@ Query to analyze:
             print(f"Error getting antipatterns: {str(e)}")
             return []
 
-    def _get_suggestions(self, query: str, identified_antipatterns: List[str] = None) -> List[str]:
+    def _get_suggestions(self, query: str, identified_antipatterns: List[str] = None, objects_metadata: Optional[str] = None) -> List[str]:
         """Get optimization suggestions using a focused prompt."""
+        metadata_context = f"Metadata dictionary as a reference for analysis: {objects_metadata}" if objects_metadata else ""
+
         if identified_antipatterns is not None:
             antipatterns_prompt = 'The query contains the following antipatterns:\n' + '\n'.join(identified_antipatterns)
         else:
@@ -813,6 +819,8 @@ Query to analyze:
         Provide each suggestion on a new line starting with '- '.
         Focus on query structure, indexes, and Snowflake features.
         Keep each suggestion brief and actionable.
+
+        {metadata_context}
 
         Query to analyze:
         {query}""".lstrip()
@@ -903,6 +911,7 @@ Query to analyze:
             self,
             query: str,
             operator_stats: str = None,
+            table_metadata: Optional[str] = None,
             schema_info: Optional[SchemaInfo] = None,
             include_cost_estimate: bool = False
     ) -> QueryAnalysis:
@@ -923,7 +932,7 @@ Query to analyze:
             ]
 
             # Get suggestions
-            suggestions = self._get_suggestions(query, antipatterns)
+            suggestions = self._get_suggestions(query, antipatterns, table_metadata)
 
             # Get complexity score
             complexity_score = self._get_complexity(query)
@@ -935,7 +944,8 @@ Query to analyze:
             optimized_query = self._generate_optimized_query(
                 query,
                 suggestions if suggestions else ["Optimize query structure and performance"],
-                schema_info
+                table_metadata,
+                schema_info,
             )
 
             # Get Snowflake-specific suggestions

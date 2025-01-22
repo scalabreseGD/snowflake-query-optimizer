@@ -46,6 +46,7 @@ class QueryAnalysis:
 class InputAnalysisModel(BaseModel):
     file_name_or_query_id: str
     query: str
+    table_metadata: Optional[Dict] = Field(default=None, descroption="Metadata of objects accessed by query")
     operator_stats: Optional[str] = Field(default=None, description="Operator Stats to be added in the prompt"
                                                                     "When file_name contains query_id")
 

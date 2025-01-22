@@ -64,3 +64,4 @@ Thumbs.db
 *.snowsql
 snowflake_session/
 *.snowflake.json 
+cache.db

@@ -1,4 +1,4 @@
-import logging
+import logging, os
 from typing import Optional
 
 import streamlit as st
@@ -106,7 +106,7 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
                 ]],
                 hide_index=True,
                 on_select="rerun",
-                selection_mode="single-row",
+                selection_mode="multi-row",
             )
             prev_col, space_col, next_col = st.columns([1, 3, 1])
             if prev_col.button("Previous") and st.session_state['current_page'] > 0:
@@ -123,25 +123,82 @@ def render_query_history_view(page_id: str, collector: Optional[QueryMetricsColl
     with st.container():
         if st.session_state[f"{page_id}_selected_query"]:
             st.markdown("### Selected Query")
-            st.code(st.session_state[f"{page_id}_selected_query"], language="sql")
+            if len(row['selection']['rows']) == 1:
+                st.code(st.session_state[f"{page_id}_selected_query"], language="sql")
 
-            if st.button("Analyze Query"):
-                if analyzer:
-                    logging.info("Starting query analysis")
-                    with st.spinner("Analyzing query..."):
-                        try:
-                            analysis_result = analyzer.analyze_query(
-                                [
-                                    InputAnalysisModel(file_name_or_query_id=st.session_state[f"{page_id}_selected_query_id"],
-                                                       query=st.session_state[f"{page_id}_selected_query"])
-                                ])
-                            st.session_state[f"{page_id}_analysis_results"] = analysis_result
-                            logging.info("Query analysis completed successfully")
-                        except Exception as e:
-                            logging.error(f"Query analysis failed: {str(e)}")
-                            st.error(f"Analysis failed: {str(e)}")
+                st.markdown("#### Impacted objects")
+                st.session_state.impacted_objects = collector.get_impacted_objects(
+                                        st.session_state[f"{page_id}_selected_query_id"]
+                                    )
+                st.dataframe(st.session_state.impacted_objects[["table_name"]])
+
+                if st.button("Analyze Query"):
+                    if analyzer:
+                        if len(all_queries) <= 1:
+                            logging.info("Starting query analysis")
+                            with st.spinner("Analyzing query..."):
+                                try:
+                                    analysis_result = analyzer.analyze_query(
+                                        [
+                                            InputAnalysisModel(file_name_or_query_id=st.session_state[f"{page_id}_selected_query_id"],
+                                                            query=st.session_state[f"{page_id}_selected_query"])
+                                        ])
+                                    st.session_state[f"{page_id}_analysis_results"] = analysis_result
+                                    logging.info("Query analysis completed successfully")
+                                except Exception as e:
+                                    logging.error(f"Query analysis failed: {str(e)}")
+                                    st.error(f"Analysis failed: {str(e)}")
+            if len(row['selection']['rows']) > 1:
+                for i in row['selection']['rows']:
+                    selected_row = query_history.iloc[i]
+                    
+                    with st.expander(f"Query_id: {selected_row['query_id']}"):
+                        st.code(format_sql(selected_row['query_text']), language="sql")
+                        st.markdown("#### Impacted objects")
+                        impacted_objects = collector.get_impacted_objects(
+                                                selected_row['query_id']
+                                            )
+                        st.dataframe(impacted_objects)
+
+                if st.button("Analyze Query"):
+                    if analyzer:
+                        logging.info("Starting query analysis")
+                        with st.spinner("Analyzing queries..."):
+                            all_queries = []
+                            for i in row['selection']['rows']:
+                                selected_row = query_history.iloc[i]
+                                impacted_objects = collector.get_impacted_objects(
+                                                        selected_row['query_id']
+                                                    )
+                                objects_metadata = collector.get_impacted_objects_metadata(
+                                            impacted_objects
+                                    )
+                                all_queries.append(InputAnalysisModel(
+                                    file_name_or_query_id=selected_row['query_id'],
+                                    query=format_sql(selected_row['query_text']),
+                                    table_metadata=objects_metadata
+                                ))
+
+                            max_parallel_call = os.cpu_count()
+                            batch_results = []
+                            for query_index in range(0, len(all_queries), max_parallel_call):
+                                query_batches = all_queries[query_index:query_index + max_parallel_call]
+                                # progress = query_index / len(all_queries)
+                                # progress_bar.progress(progress)
+                                # status_text.markdown("Analyzing:\n * " + '\n* '.join([q.file_name_or_query_id for q in query_batches]))
+                                try:
+                                    batch_results.extend(analyzer.analyze_query(query_batches))
+                                except Exception as e:
+                                    st.error(f"Failed to analyze the Batch: {e}")
+
+                            batch_results = sorted(batch_results, key=lambda res: res['filename'])
+
+                            st.session_state[f"{page_id}_analysis_results"] = batch_results
+                            # status_text.text("Analysis completed!")
+
 
         if st.session_state[f"{page_id}_analysis_results"]:
+            st.markdown("### Analysis Results")
             create_results_expanders(st.session_state[f"{page_id}_analysis_results"])
             create_export_excel_from_results(st.session_state[f"{page_id}_analysis_results"])
 
