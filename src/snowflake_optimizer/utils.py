@@ -236,10 +236,9 @@ def create_export_excel_from_results(results: List[OutputAnalysisModel]):
     try:
         print("\n=== Export Button Clicked ===")
         print(f'Creating Excel report for {len(results)} results')
-        excel_data = __create_excel_report(results)
         st.download_button(
             label="Download Excel Report",
-            data=excel_data,
+            data=__create_excel_report(results),
             file_name="query_analysis_report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="download_excel"  # Add unique key
@@ -272,7 +271,7 @@ def __create_excel_report(batch_results: List[OutputAnalysisModel]) -> bytes:
                 category = None
                 for category, patterns in SQL_ANTIPATTERNS.items():
                     for code, details in patterns.items():
-                        if any(detect.lower() in pattern.lower() for detect in details['detection']):
+                        if code.lower() in pattern.lower():
                             pattern_code = code
                             pattern_details = details
                             break
@@ -287,8 +286,7 @@ def __create_excel_report(batch_results: List[OutputAnalysisModel]) -> bytes:
                         'Category': category,
                         'Description': pattern_details['description'],
                         'Impact': pattern_details['impact'],
-                        'Details': pattern,
-                        'Suggestion': analysis.suggestions[0] if analysis.suggestions else 'None'
+                        'Details': pattern
                     })
                 else:
                     # Fallback for unrecognized patterns
@@ -300,7 +298,6 @@ def __create_excel_report(batch_results: List[OutputAnalysisModel]) -> bytes:
                         'Description': pattern,
                         'Impact': 'Unknown',
                         'Details': pattern,
-                        'Suggestion': analysis.suggestions[0] if analysis.suggestions else 'None'
                     })
 
         # Add metrics data
@@ -327,8 +324,7 @@ def __create_excel_report(batch_results: List[OutputAnalysisModel]) -> bytes:
             pd.DataFrame(error_data).to_excel(writer, sheet_name='Errors', index=False)
         else:
             pd.DataFrame(
-                columns=['Query', 'Pattern Code', 'Pattern Name', 'Category', 'Description', 'Impact', 'Details',
-                         'Suggestion']).to_excel(writer, sheet_name='Errors', index=False)
+                columns=['Query', 'Pattern Code', 'Pattern Name', 'Category', 'Description', 'Impact', 'Details',]).to_excel(writer, sheet_name='Errors', index=False)
 
         # Write metrics sheet
         if metric_data:
