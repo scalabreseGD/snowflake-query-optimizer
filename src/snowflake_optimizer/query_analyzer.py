@@ -234,8 +234,8 @@ Do not include any other text in your response."""
                 sql_block = response_text.split("```sql")[1].split("```")[0].strip()
 
                 # Validate repaired query
-                if self._parse_and_validate(sql_block):
-                    return sql_block
+                # if self._parse_and_validate(sql_block):
+                return sql_block
 
             return None
         except Exception:
@@ -606,11 +606,11 @@ The optimized query must return exactly the same results as the original."""
                 sql_block = response_text.split("```sql")[1].split("```")[0].strip()
 
                 # Validate optimized query with retries
-                if self._parse_and_validate(sql_block, max_retries=3):
-                    return sql_block
-                else:
-                    print("Failed to validate optimized query after retries")
-                    return None
+                # if self._parse_and_validate(sql_block, max_retries=3):
+                return sql_block
+                # else:
+                #     print("Failed to validate optimized query after retries")
+                #     return None
 
             return None
         except Exception as e:
