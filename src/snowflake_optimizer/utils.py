@@ -264,7 +264,7 @@ def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, op
 
 def show_performance_difference(original_query_df: pd.DataFrame, optimized_query_df: pd.DataFrame,
                                 difference_df: pd.DataFrame):
-    minimum_expected_columns = ['EXECUTION_TIME_SECONDS', 'MB_SCANNED', 'ROWS_PRODUCED', 'COMPILATION_TIME_SECONDS']
+    minimum_expected_columns = ['EXECUTION_TIME_SECONDS', 'MB_SCANNED', 'ROWS_PRODUCED', 'COMPILATION_TIME_SECONDS', 'CREDITS_USED_CLOUD_SERVICES']
     st.markdown("### Performance Difference")
     st.markdown("### Original Query")
     st.dataframe(original_query_df)

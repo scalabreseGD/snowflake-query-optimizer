@@ -286,7 +286,7 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
                                         BYTES_SCANNED / 1024 / 1024 AS MB_SCANNED,
                                         ROWS_PRODUCED,
                                         COMPILATION_TIME / 1000 AS COMPILATION_TIME_SECONDS,
-                                        EXECUTION_STATUS
+                                        CREDITS_USED_CLOUD_SERVICES
                                 from table(INFORMATION_SCHEMA.QUERY_HISTORY_BY_SESSION({session.session_id})) 
                                 where query_id = '{query_id}' 
                                 and EXECUTION_STATUS = 'SUCCESS'
