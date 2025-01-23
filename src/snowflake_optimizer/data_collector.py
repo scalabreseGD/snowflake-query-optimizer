@@ -1,13 +1,14 @@
 """Module for collecting query performance data from Snowflake."""
-import collections
+# import collections
 import time
-from typing import Dict, Any, Optional, Literal, Callable
+from typing import Dict, Any, Optional, Literal, Callable, List
 
 import pandas as pd
 import streamlit
 from snowflake.snowpark import Session, DataFrame
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
+from snowflake_optimizer.models import SchemaInfo
 
 
 class SnowflakeDataCollector:
@@ -145,7 +146,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
         return df
 
     @streamlit.cache_data(show_spinner=False)
-    def get_impacted_objects_metadata(_self, impacted_objects: pd.DataFrame) -> Dict[str, Any]:
+    def get_impacted_objects_metadata(_self, impacted_objects: pd.DataFrame) -> List[SchemaInfo]:
         """
         Fetch impacted objects metadata by query_id
 
@@ -155,7 +156,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
         Returns:
             Dictionary containing the objects metadata
         """
-        metadata = collections.defaultdict(dict)
+        metadata = []
         for _, row in impacted_objects.iterrows():
             object_name = row.iloc[0]
             table_catalog, table_schema, table_name = object_name.split('.')
@@ -171,26 +172,30 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 """
             try:
                 with _self._engine.connect() as conn:
-                    desc_dict = pd.read_sql(desc_query, conn).to_dict(orient="records")
-                    metadata[object_name]["table_schema"] = desc_dict[0]
+                    columns_dict = pd.read_sql(desc_query, conn).to_dict(orient="records")[0]
             except:
                 print(f"No metadata for object: {object_name} in SNOWFLAKE.ACCOUNT_USAGE.COLUMNS")
             try:
                 table_catalog, table_schema, table_name = object_name.split('.')
                 query = f"""
-                    SELECT ROW_COUNT, BYTES, CLUSTERING_KEY, AUTO_CLUSTERING_ON, TABLE_TYPE
+                    SELECT ROW_COUNT, BYTES
                     FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES 
                     WHERE
                     table_name = '{table_name}' AND
                     table_schema = '{table_schema}' AND
-                    table_catalog = '{table_catalog}';
+                    table_catalog = '{table_catalog}' AND
+                    DELETED is NULL;
                     """
                 with _self._engine.connect() as conn:
-                    metadata_dict = pd.read_sql(query, conn).to_dict(orient="records")
-                    metadata[object_name]["metadata"] = metadata_dict[0]
+                    metadata_dict = pd.read_sql(query, conn).to_dict(orient="records")[0]
             except:
                 print(f"No metadata for object: {object_name} in SNOWFLAKE.ACCOUNT_USAGE.TABLES")
-        return dict(metadata)
+
+            metadata.append(SchemaInfo(table_name=object_name,
+                        columns=columns_dict,
+                        row_count=metadata_dict["row_count"],
+                        size_bytes=metadata_dict["bytes"]))
+        return metadata
 
     def get_query_plan(self, query_id: str) -> Dict[str, Any]:
         """Fetch the query execution plan for a specific query.

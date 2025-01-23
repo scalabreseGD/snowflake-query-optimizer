@@ -150,7 +150,7 @@ def render_query_history_view(page_id: str,
                                 all_queries.append(InputAnalysisModel(
                                     file_name_or_query_id=selected_row['query_id'],
                                     query=format_sql(selected_row['query_text']),
-                                    table_metadata=objects_metadata
+                                    schema_info=objects_metadata
                                 ))
 
                             max_parallel_call = os.cpu_count()
