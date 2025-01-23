@@ -41,54 +41,60 @@ def render_query_history_view(page_id: str,
     st.header("Query History Analysis")
 
     # Sidebar configuration
-    with st.expander("History Configuration", expanded=True):
-        days = st.slider(
-            "Days to analyze",
-            min_value=1,
-            max_value=30,
-            value=1,
-            help="Number of days to look back in query history"
-        )
-        min_execution_time = st.number_input(
-            "Minimum execution time (seconds)",
-            min_value=1,
-            value=60,
-            help="Minimum query execution time to consider"
-        )
-        limit = st.number_input(
-            "Number of queries",
-            min_value=1,
-            max_value=1000,
-            value=50,
-            help="Maximum number of queries to analyze"
-        )
+    with st.spinner('Loading Page'):
+        with st.expander("History Configuration", expanded=False):
 
-        page_size = st.number_input(
-            "Page Size",
-            min_value=1,
-            max_value=1000,
-            value=10,
-            help="Page Size for Pagination."
-        )
+            days = st.slider(
+                "Days to analyze",
+                min_value=1,
+                max_value=30,
+                value=1,
+                help="Number of days to look back in query history"
+            )
+            min_execution_time = st.number_input(
+                "Minimum execution time (seconds)",
+                min_value=1,
+                value=60,
+                help="Minimum query execution time to consider"
+            )
+            limit = st.number_input(
+                "Number of queries",
+                min_value=1,
+                max_value=1000,
+                value=50,
+                help="Maximum number of queries to analyze"
+            )
 
-        logging.debug(
-            f"Query history parameters - days: {days}, min_execution_time: {min_execution_time}, limit: {limit}")
+            page_size = st.number_input(
+                "Page Size",
+                min_value=1,
+                max_value=1000,
+                value=10,
+                help="Page Size for Pagination."
+            )
 
-        fetch_query_btn = st.button("Fetch Queries")
+            database_schemas_filter = st.selectbox(label="Filter by DATABASE",
+                                                   options=_get_databases(collector),
+                                                   index=0)
 
-        if fetch_query_btn:
-            if collector:
-                logging.info("Fetching query history from Snowflake")
-                with st.spinner("Fetching query history..."):
-                    try:
-                        if f"{page_id}_current_page" not in st.session_state:
-                            st.session_state[f"{page_id}_current_page"] = 0
-                    except Exception as e:
-                        logging.error(f"Failed to fetch query history: {str(e)}")
-                        st.error(f"Failed to fetch queries: {str(e)}")
-            else:
-                logging.error("Cannot fetch queries - Snowflake connection not available")
-                st.error("Snowflake connection not available")
+            logging.debug(
+                f"Query history parameters - days: {days}, min_execution_time: {min_execution_time}, limit: {limit}")
+
+            fetch_query_btn = st.button("Fetch Queries")
+
+            if fetch_query_btn:
+                if collector:
+                    logging.info("Fetching query history from Snowflake")
+                    with st.spinner("Fetching query history..."):
+                        try:
+                            if f"{page_id}_current_page" not in st.session_state:
+                                st.session_state[f"{page_id}_current_page"] = 0
+                        except Exception as e:
+                            logging.error(f"Failed to fetch query history: {str(e)}")
+                            st.error(f"Failed to fetch queries: {str(e)}")
+                else:
+                    logging.error("Cannot fetch queries - Snowflake connection not available")
+                    st.error("Snowflake connection not available")
 
     with st.container():
         if f"{page_id}_current_page" in st.session_state:
@@ -97,7 +103,8 @@ def render_query_history_view(page_id: str,
                 min_execution_time=min_execution_time,
                 limit=limit,
                 page_size=page_size,
-                page=st.session_state[f"{page_id}_current_page"]
+                page=st.session_state[f"{page_id}_current_page"],
+                db_schema_filter=database_schemas_filter
             )
             st.info("Select queries from the dataframe below clicking on the left of the table")
             row = st.dataframe(
@@ -113,9 +120,9 @@ def render_query_history_view(page_id: str,
             )
             prev_col, space_col, next_col = st.columns([1, 3, 1])
             if prev_col.button("Previous") and st.session_state[f"{page_id}_current_page"] > 0:
-                st.session_state['current_page'] -= 1
+                st.session_state[f"{page_id}_current_page"] -= 1
             if next_col.button("Next") and st.session_state[f"{page_id}_current_page"] < total_pages - 1:
-                st.session_state['current_page'] += 1
+                st.session_state[f"{page_id}_current_page"] += 1
             if len(row['selection']['rows']) > 0:
                 selected_item = row['selection']['rows'][0]
                 selected_query = query_history.iloc[selected_item]
@@ -175,6 +182,12 @@ def render_query_history_view(page_id: str,
             # create_results_expanders(st.session_state[f"{page_id}_analysis_results"])
             create_results_expanders(executor, st.session_state[f"{page_id}_analysis_results"])
             create_export_excel_from_results(st.session_state[f"{page_id}_analysis_results"])
+
+
+@st.cache_data(show_spinner="Loading Databases")
+def _get_databases(_collector):
+    db_schemas = _collector.get_databases()
+    return [''] + [elem['database_name'] for elem in db_schemas]
 
 
 def main():

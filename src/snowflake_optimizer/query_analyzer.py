@@ -25,6 +25,7 @@ class QueryAnalyzer:
         self.cache = cache
         self.client = openai_client
         self.model = openai_model
+        self.dialect = 'snowflake'
 
         # System message for consistent JSON responses
         self.system_message = {
@@ -155,7 +156,7 @@ Query to analyze:
         """
         try:
             # First attempt: Basic parsing
-            parsed = parse_one(query)
+            parsed = parse_one(sql=query,dialect=self.dialect)
             return True
         except Exception as e:
             if max_retries <= 0:
@@ -312,7 +313,7 @@ Do not include any other text in your response."""
         """
         suggestions = []
         try:
-            parsed = parse_one(query)
+            parsed = parse_one(query,dialect=self.dialect)
 
             # Extract columns used in WHERE clauses and JOINs
             # This is a simplified version - in practice, you'd want more sophisticated analysis
@@ -341,7 +342,7 @@ Do not include any other text in your response."""
         suggestions = []
         try:
             query_upper = query.upper()
-            parsed = parse_one(query)
+            parsed = parse_one(query,dialect=self.dialect)
 
             # Extract columns from WHERE, ORDER BY, GROUP BY clauses
             where_columns = set()
@@ -494,7 +495,7 @@ Do not include any other text in your response."""
 
         try:
             # Parse query to extract table and column references
-            parsed = parse_one(query)
+            parsed = parse_one(query,dialect=self.dialect)
 
             # Extract table references
             table_refs = set()
@@ -541,7 +542,13 @@ Do not include any other text in your response."""
                                   schema_info: Optional[List[SchemaInfo]] = None) -> Optional[str]:
         """Generate optimized query based on suggested improvements."""
         # Add schema information to the prompt if available
-        schema_context = f"Metadata dictionary as a reference for analysis:\n{schema_info}" if schema_info else ""
+        schema_context = ""
+        if schema_info:
+            for info in schema_info:
+                schema_context += f"""
+                Table: {info.table_name}
+                Columns: {', '.join(col['name'] for col in info.columns)}
+                """
 
         # Filter out infrastructure-level suggestions
         query_level_improvements = [
@@ -930,7 +937,6 @@ Query to analyze:
 
             # Get query category
             category, category_explanation = self._get_category(query)
-
 
             # Get Snowflake-specific suggestions
             try:
