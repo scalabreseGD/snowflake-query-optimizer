@@ -922,7 +922,7 @@ Query to analyze:
     def _analyze_query(
             self,
             query: str,
-            schema_info: Optional[SchemaInfo] = None
+            schema_info: Optional[List[SchemaInfo]] = None
     ) -> QueryAnalysis:
         """Analyze a SQL query for optimization opportunities."""
         # Initialize default values
