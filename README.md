@@ -1,6 +1,6 @@
 # Snowflake Query Optimizer
 
-An intelligent SQL query optimization tool powered by Claude 3.5 Sonnet, designed to analyze and optimize Snowflake queries for better performance.
+An intelligent SQL query optimization tool powered by Azure OpenAI, designed to analyze and optimize Snowflake queries for better performance.
 
 ## Features
 

@@ -74,7 +74,7 @@ def render_query_history_view(page_id: str,
             )
 
             database_schemas_filter = st.selectbox(label="Filter by DATABASE",
-                                                   options=get_databases(collector),
+                                                   options=__get_databases(collector),
                                                    index=0)
 
             logging.debug(
@@ -185,7 +185,7 @@ def render_query_history_view(page_id: str,
 
 
 @st.cache_data(show_spinner="Loading Databases")
-def get_databases(_collector):
+def __get_databases(_collector):
     db_schemas = _collector.get_databases()
     return [''] + [elem['database_name'] for elem in db_schemas]
 

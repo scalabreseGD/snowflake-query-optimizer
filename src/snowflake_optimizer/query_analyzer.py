@@ -25,6 +25,7 @@ class QueryAnalyzer:
         self.cache = cache
         self.client = openai_client
         self.model = openai_model
+        self.dialect = 'snowflake'
 
         # System message for consistent JSON responses
         self.system_message = {
@@ -155,7 +156,7 @@ Query to analyze:
         """
         try:
             # First attempt: Basic parsing
-            parsed = parse_one(query)
+            parsed = parse_one(sql=query,dialect=self.dialect)
             return True
         except Exception as e:
             if max_retries <= 0:
@@ -312,7 +313,7 @@ Do not include any other text in your response."""
         """
         suggestions = []
         try:
-            parsed = parse_one(query)
+            parsed = parse_one(query,dialect=self.dialect)
 
             # Extract columns used in WHERE clauses and JOINs
             # This is a simplified version - in practice, you'd want more sophisticated analysis
@@ -324,7 +325,7 @@ Do not include any other text in your response."""
                 suggestions.append(f"Consider adding indexes on filter columns: {', '.join(where_columns)}")
             if join_columns:
                 suggestions.append(f"Consider adding indexes on join columns: {', '.join(join_columns)}")
-        except Exception:
+        except Exception as e:
             pass
         return suggestions
 
@@ -341,7 +342,7 @@ Do not include any other text in your response."""
         suggestions = []
         try:
             query_upper = query.upper()
-            parsed = parse_one(query)
+            parsed = parse_one(query,dialect=self.dialect)
 
             # Extract columns from WHERE, ORDER BY, GROUP BY clauses
             where_columns = set()
@@ -494,7 +495,7 @@ Do not include any other text in your response."""
 
         try:
             # Parse query to extract table and column references
-            parsed = parse_one(query)
+            parsed = parse_one(query,dialect=self.dialect)
 
             # Extract table references
             table_refs = set()
@@ -803,12 +804,14 @@ Query to analyze:
             print(f"Error getting antipatterns: {str(e)}")
             return []
 
-    def _get_suggestions(self, query: str, identified_antipatterns: List[str] = None, objects_metadata: Optional[str] = None) -> List[str]:
+    def _get_suggestions(self, query: str, identified_antipatterns: List[str] = None,
+                         objects_metadata: Optional[str] = None) -> List[str]:
         """Get optimization suggestions using a focused prompt."""
         metadata_context = f"Metadata dictionary as a reference for analysis:\n{objects_metadata}" if objects_metadata else ""
 
         if identified_antipatterns is not None:
-            antipatterns_prompt = 'The query contains the following antipatterns:\n' + '\n'.join(identified_antipatterns)
+            antipatterns_prompt = 'The query contains the following antipatterns:\n' + '\n'.join(
+                identified_antipatterns)
         else:
             antipatterns_prompt = ''
 
@@ -939,7 +942,6 @@ Query to analyze:
 
             # Get query category
             category, category_explanation = self._get_category(query)
-
 
             # Get Snowflake-specific suggestions
             try:

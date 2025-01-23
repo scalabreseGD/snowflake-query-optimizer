@@ -72,7 +72,7 @@ def create_export_excel_from_results(results: List[OutputAnalysisModel]):
         print(f'Creating Excel report for {len(results)} results')
         st.download_button(
             label="Download Excel Report",
-            data=__create_excel_report(results),
+            data=create_excel_report(results),
             file_name="query_analysis_report.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="download_excel"  # Add unique key
@@ -83,7 +83,7 @@ def create_export_excel_from_results(results: List[OutputAnalysisModel]):
         print(f"Traceback: {traceback.format_exc()}")
 
 
-def __create_excel_report(batch_results: List[OutputAnalysisModel]) -> bytes:
+def create_excel_report(batch_results: List[OutputAnalysisModel]) -> bytes:
     """Create Excel report from batch analysis results."""
     if not batch_results:
         raise ValueError("No results to export")
