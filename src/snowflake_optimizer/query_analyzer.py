@@ -813,7 +813,7 @@ Query to analyze:
                 schema_context += f"""
                         Table: {info.table_name}
                         Columns: 
-                        """
+                        """.lstrip()
                 for column in info.columns:
                     schema_context += f"{column.column_name}:{column.column_type}\n"
         else:
@@ -1026,7 +1026,8 @@ Query to analyze:
                     return OutputAnalysisModel(
                         filename=query_info.file_name_or_query_id,
                         original_query=query_info.query,
-                        analysis=analysis_result
+                        analysis=analysis_result,
+                        schema_info=query_info.schema_info
                     )
                 print(f"No analysis result for {query_info.file_name_or_query_id}")
                 return None

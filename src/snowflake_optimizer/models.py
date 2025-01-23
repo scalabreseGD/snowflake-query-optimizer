@@ -58,6 +58,7 @@ class InputAnalysisModel(BaseModel):
 class OutputAnalysisModel(BaseModel):
     filename: str
     original_query: str
+    schema_info: Optional[List[SchemaInfo]] = Field(default=None, description="List of schema info")
     analysis: QueryAnalysis
 
     def __getitem__(self, item):

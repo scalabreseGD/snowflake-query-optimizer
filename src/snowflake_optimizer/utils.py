@@ -36,6 +36,7 @@ def create_results_expanders(executor: SnowflakeQueryExecutor, results: List[Out
     for result in results:
         with st.expander(f"Results for {result['filename']}", expanded=len(results) == 1):
             st.code(result['original_query'], language="sql")
+            st.markdown("Affected Objects: \n* " + '\n* '.join([info.table_name for info in result.schema_info]))
             logging.debug(f'Analysis results - Category: {result["analysis"].category}, '
                           f'Complexity: {result["analysis"].complexity_score:.2f}')
             st.info(f"Category: {result['analysis'].category}")

@@ -146,7 +146,6 @@ def render_query_history_view(page_id: str,
                         with st.spinner("Analyzing queries..."):
                             status_text = st.empty()
                             all_queries = []
-                            schema_info = []
                             for i in row['selection']['rows']:
                                 selected_row = query_history.iloc[i]
                                 impacted_objects = collector.get_impacted_objects(
