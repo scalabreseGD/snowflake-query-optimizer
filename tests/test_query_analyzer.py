@@ -3,7 +3,8 @@ from unittest.mock import Mock, patch
 from openai import OpenAI
 from sqlglot import exp
 
-from snowflake_optimizer.models import SchemaInfo, QueryCategory, QueryAnalysis, InputAnalysisModel, OutputAnalysisModel
+from snowflake_optimizer.models import SchemaInfo, QueryCategory, QueryAnalysis, InputAnalysisModel, \
+    OutputAnalysisModel, ColumnInfo
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 
 
@@ -46,9 +47,9 @@ def sample_schema_info():
     return SchemaInfo(
         table_name="users",
         columns=[
-            {"name": "id", "type": "INTEGER"},
-            {"name": "name", "type": "VARCHAR"},
-            {"name": "created_at", "type": "TIMESTAMP"}
+            ColumnInfo(column_name="id", column_type="INTEGER"),
+            ColumnInfo(column_name="name", column_type="VARCHAR"),
+            ColumnInfo(column_name="created_at", column_type="TIMESTAMP")
         ]
     )
 

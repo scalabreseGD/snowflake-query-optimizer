@@ -7,7 +7,7 @@ import streamlit as st
 from snowflake_optimizer.connections import initialize_connections, setup_logging, get_snowflake_query_executor, \
     get_cache
 from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
-from snowflake_optimizer.models import SchemaInfo, InputAnalysisModel
+from snowflake_optimizer.models import SchemaInfo, InputAnalysisModel, ColumnInfo
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 from snowflake_optimizer.utils import format_sql, split_sql_queries, \
     init_common_states, create_results_expanders, create_export_excel_from_results, evaluate_or_repair_query
@@ -77,11 +77,13 @@ def render_manual_analysis_view(page_id: str,
             with schema_col2:
                 columns_json = st.text_area(
                     "Columns (JSON format)",
-                    help='Example: [{"name": "id", "type": "INTEGER"}, {"name": "email", "type": "VARCHAR"}]'
+                    help='Example: [{"column_name": "id", "column_type": "INTEGER"}]'
                 )
 
             try:
                 columns = json.loads(columns_json) if columns_json else []
+                columns = [ColumnInfo(column_name=column['column_name'], column_type=column['data_type']) for
+                           column in columns]
                 st.session_state[f"{page_id}_schema_info"] = SchemaInfo(
                     table_name=table_name,
                     columns=columns,
@@ -199,8 +201,11 @@ def __analyze_query_callback(page_id, analyzer: Optional[QueryAnalyzer]):
         print(f'Analyzing query of length: {len(st.session_state[f"{page_id}_formatted_query"])}')
         file_name = st.session_state.get(f"{page_id}_file_name", 'UI QUERY')
         result = analyzer.analyze_query(
-            [InputAnalysisModel(file_name_or_query_id=file_name, query=st.session_state[f"{page_id}_formatted_query"])],
-            schema_info=st.session_state[f"{page_id}_schema_info"] if hasattr(st.session_state, 'schema_info') else None
+            [InputAnalysisModel(
+                file_name_or_query_id=file_name,
+                query=st.session_state[f"{page_id}_formatted_query"],
+                schema_info=st.session_state[f"{page_id}_schema_info"] if hasattr(st.session_state, 'schema_info') else None
+            )]
         )
         st.session_state[f"{page_id}_analysis_results"] = result
         print("Analysis completed successfully")

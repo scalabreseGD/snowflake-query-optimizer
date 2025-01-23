@@ -156,7 +156,7 @@ Query to analyze:
         """
         try:
             # First attempt: Basic parsing
-            parsed = parse_one(sql=query,dialect=self.dialect)
+            parsed = parse_one(sql=query, dialect=self.dialect)
             return True
         except Exception as e:
             if max_retries <= 0:
@@ -313,7 +313,7 @@ Do not include any other text in your response."""
         """
         suggestions = []
         try:
-            parsed = parse_one(query,dialect=self.dialect)
+            parsed = parse_one(query, dialect=self.dialect)
 
             # Extract columns used in WHERE clauses and JOINs
             # This is a simplified version - in practice, you'd want more sophisticated analysis
@@ -342,7 +342,7 @@ Do not include any other text in your response."""
         suggestions = []
         try:
             query_upper = query.upper()
-            parsed = parse_one(query,dialect=self.dialect)
+            parsed = parse_one(query, dialect=self.dialect)
 
             # Extract columns from WHERE, ORDER BY, GROUP BY clauses
             where_columns = set()
@@ -495,7 +495,7 @@ Do not include any other text in your response."""
 
         try:
             # Parse query to extract table and column references
-            parsed = parse_one(query,dialect=self.dialect)
+            parsed = parse_one(query, dialect=self.dialect)
 
             # Extract table references
             table_refs = set()
@@ -519,7 +519,7 @@ Do not include any other text in your response."""
                 return False, f"Query references non-existent table: {table_refs - {schema_info.table_name} }"
 
             # Get valid column names
-            valid_columns = {col["name"] for col in schema_info.columns}
+            valid_columns = {col.column_name for col in schema_info.columns}
 
             # Validate column references
             invalid_columns = set()
@@ -547,8 +547,10 @@ Do not include any other text in your response."""
             for info in schema_info:
                 schema_context += f"""
                 Table: {info.table_name}
-                Columns: {', '.join(col['name'] for col in info.columns)}
+                Columns: 
                 """
+                for column in info.columns:
+                    schema_context += f"{column.column_name}:{column.column_type}\n"
 
         # Filter out infrastructure-level suggestions
         query_level_improvements = [
@@ -594,7 +596,7 @@ The optimized query must return exactly the same results as the original."""
                 user_prompt=generation_prompt.format(
                     query=query,
                     improvements="\n".join(f"- {imp}" for imp in query_level_improvements),
-                    schema_context=schema_context
+                    schema_context=schema_context.lstrip()
                 ),
                 max_tokens=2048,
             )
@@ -801,12 +803,24 @@ Query to analyze:
             print(f"Error getting antipatterns: {str(e)}")
             return []
 
-    def _get_suggestions(self, query: str, identified_antipatterns: List[str] = None, schema_info: Optional[List[SchemaInfo]] = None) -> List[str]:
+    def _get_suggestions(self, query: str, identified_antipatterns: List[str] = None,
+                         schema_info: Optional[List[SchemaInfo]] = None) -> List[str]:
         """Get optimization suggestions using a focused prompt."""
-        schema_context = f"Metadata dictionary as a reference for analysis:\n{schema_info}" if schema_info else ""
 
+        if schema_info:
+            schema_context = "The Query uses the following Table\n"
+            for info in schema_info:
+                schema_context += f"""
+                        Table: {info.table_name}
+                        Columns: 
+                        """
+                for column in info.columns:
+                    schema_context += f"{column.column_name}:{column.column_type}\n"
+        else:
+            schema_context = ""
         if identified_antipatterns is not None:
-            antipatterns_prompt = 'The query contains the following antipatterns:\n' + '\n'.join(identified_antipatterns)
+            antipatterns_prompt = 'The query contains the following antipatterns:\n' + '\n'.join(
+                identified_antipatterns)
         else:
             antipatterns_prompt = ''
 
@@ -818,7 +832,7 @@ Query to analyze:
         Focus on query structure, indexes, and Snowflake features.
         Keep each suggestion brief and actionable.
 
-        {schema_context}
+        {schema_context.lstrip()}
 
         Query to analyze:
         {query}""".lstrip()
@@ -908,10 +922,7 @@ Query to analyze:
     def _analyze_query(
             self,
             query: str,
-            operator_stats: str = None,
-            table_metadata: Optional[str] = None,
-            schema_info: Optional[SchemaInfo] = None,
-            include_cost_estimate: bool = False
+            schema_info: Optional[SchemaInfo] = None
     ) -> QueryAnalysis:
         """Analyze a SQL query for optimization opportunities."""
         # Initialize default values
@@ -983,8 +994,7 @@ Query to analyze:
             index_suggestions=self._suggest_indexes(query, schema_info)
         )
 
-    def analyze_query(self, queries: List[InputAnalysisModel],
-                      schema_info: Optional[List[SchemaInfo]] = None) -> List[OutputAnalysisModel]:
+    def analyze_query(self, queries: List[InputAnalysisModel]) -> List[OutputAnalysisModel]:
 
         """Analyze a batch of queries in parallel using multi-threading.
 
@@ -1008,7 +1018,7 @@ Query to analyze:
                 print(f"\nAnalyzing query from {query_info.file_name_or_query_id}")
                 analysis_result = self._analyze_query(
                     query_info.query,
-                    schema_info=schema_info
+                    schema_info=query_info.schema_info
                 )
 
                 if analysis_result:
@@ -1028,7 +1038,7 @@ Query to analyze:
         # Use ThreadPoolExecutor for parallel processing
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             # Submit all tasks and get futures
-            futures = [executor.submit(analyze_single_query, query_info) for query_info in queries]
+            futures = [executor.submit(analyze_single_query, query_info=query_info) for query_info in queries]
             for future in as_completed(futures):
                 try:
                     result = future.result()

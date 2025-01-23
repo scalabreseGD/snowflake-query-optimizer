@@ -1,5 +1,5 @@
 """Module for collecting query performance data from Snowflake."""
-# import collections
+import collections
 import time
 from typing import Dict, Any, Optional, Literal, Callable, List
 
@@ -8,7 +8,8 @@ import streamlit
 from snowflake.snowpark import Session, DataFrame
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
-from snowflake_optimizer.models import SchemaInfo
+
+from snowflake_optimizer.models import SchemaInfo, ColumnInfo
 
 
 class SnowflakeDataCollector:
@@ -209,7 +210,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
             table_catalog, table_schema, table_name = object_name.split('.')
             # desc_query = f"""DESC TABLE {object_name}"""
             desc_query = f"""
-                SELECT OBJECT_AGG(COLUMN_NAME, DATA_TYPE::VARIANT) as table_schema
+                SELECT COLUMN_NAME, DATA_TYPE::VARIANT as DATA_TYPE
                 FROM SNOWFLAKE.ACCOUNT_USAGE.COLUMNS 
                 WHERE 
                 TABLE_CATALOG = '{table_catalog}' AND
@@ -219,7 +220,10 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 """
             try:
                 with _self._engine.connect() as conn:
-                    columns_dict = pd.read_sql(desc_query, conn).to_dict(orient="records")[0]
+                    columns_dict = pd.read_sql(desc_query, conn).to_dict(orient="records")
+                    columns_dict = [ColumnInfo(column_name=column['column_name'], column_type=column['data_type']) for
+                                    column in columns_dict]
+
             except:
                 print(f"No metadata for object: {object_name} in SNOWFLAKE.ACCOUNT_USAGE.COLUMNS")
             try:
@@ -239,9 +243,9 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 print(f"No metadata for object: {object_name} in SNOWFLAKE.ACCOUNT_USAGE.TABLES")
 
             metadata.append(SchemaInfo(table_name=object_name,
-                        columns=columns_dict,
-                        row_count=metadata_dict["row_count"],
-                        size_bytes=metadata_dict["bytes"]))
+                                       columns=columns_dict,
+                                       row_count=metadata_dict.get("row_count"),
+                                       size_bytes=metadata_dict.get("bytes")))
         return metadata
 
     def get_query_plan(self, query_id: str) -> Dict[str, Any]:

@@ -16,11 +16,17 @@ class QueryCategory(str, Enum):
 
 
 @dataclass
+class ColumnInfo:
+    column_name: str
+    column_type: str
+
+
+@dataclass
 class SchemaInfo:
     """Contains table schema and statistics information."""
 
     table_name: str
-    columns: List[Dict[str, str]]
+    columns: List[ColumnInfo]
     row_count: Optional[int] = None
     size_bytes: Optional[int] = None
     indexes: Optional[List[str]] = None
@@ -46,8 +52,7 @@ class QueryAnalysis:
 class InputAnalysisModel(BaseModel):
     file_name_or_query_id: str
     query: str
-    operator_stats: Optional[str] = Field(default=None, description="Operator Stats to be added in the prompt"
-                                                                    "When file_name contains query_id")
+    schema_info: Optional[List[SchemaInfo]] = Field(default=None, description="List of schema info")
 
 
 class OutputAnalysisModel(BaseModel):

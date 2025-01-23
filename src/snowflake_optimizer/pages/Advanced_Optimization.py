@@ -49,9 +49,9 @@ def render_advanced_optimization_view(page_id,
                     result = analyzer.analyze_query(
                         [InputAnalysisModel(
                             query=query,
-                            file_name_or_query_id='UI QUERY'
+                            file_name_or_query_id='UI QUERY',
+                            schema_info=schema_info if schema_info else None
                         )],
-                        schema_info=schema_info if schema_info else None,
                         # partition_info=partition_info if partition_info else None,
                         # analyze_clustering=analyze_clustering,
                         # suggest_materialization=suggest_materialization,
