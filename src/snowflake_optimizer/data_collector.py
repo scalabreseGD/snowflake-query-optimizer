@@ -51,11 +51,27 @@ class SnowflakeDataCollector:
 class QueryMetricsCollector(SnowflakeDataCollector):
     """Collects query performance metrics from Snowflake."""
 
+    def get_databases(self):
+        query = """
+        select database_name 
+        from snowflake.account_usage.databases 
+        where deleted is null
+        order by 1;
+        """.lstrip()
+
+        with self._engine.connect() as conn:
+            df = pd.read_sql(
+                query,
+                conn
+            )
+            return df.to_dict(orient='records')
+
     def get_expensive_queries_paginated(self, days: int = 7,
                                         min_execution_time: float = 60.0,
                                         limit: int = 100,
-                                        page=0, page_size=20):
-        df = self.get_expensive_queries(days, min_execution_time, limit)
+                                        page=0, page_size=20,
+                                        db_schema_filter=''):
+        df = self.get_expensive_queries(days, min_execution_time, limit, db_schema_filter)
         start_idx = page * page_size
         end_idx = start_idx + page_size
 
@@ -68,6 +84,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
             days: int = 7,
             min_execution_time: float = 60.0,
             limit: int = 100,
+            db_schema_filter=''
     ) -> pd.DataFrame:
         """Fetch expensive queries from Snowflake query history.
 
@@ -75,10 +92,39 @@ class QueryMetricsCollector(SnowflakeDataCollector):
             days: Number of days to look back
             min_execution_time: Minimum execution time in seconds
             limit: Maximum number of queries to return
+            db_schema_filter: Filter by database and schema name
 
         Returns:
             DataFrame containing query metrics
         """
+        if db_schema_filter != '':
+            db_schemas_filter_cte = f"""
+                ,access_history_by_qid as (
+                    select query_id, base_objects_accessed, direct_objects_accessed
+                    from snowflake.account_usage.access_history
+                ),
+                object_accessed as (
+                    select distinct query_id
+                    from (
+                        (
+                            select query_id, doa.value:"objectName"::string as table_name,
+                            from access_history_by_qid,
+                            lateral flatten(direct_objects_accessed) doa
+                        )
+                        union all
+                        (
+                            select query_id, boa.value:"objectName"::string as table_name,
+                            from access_history_by_qid,
+                            lateral flatten(base_objects_accessed) boa
+                        )
+                    )
+                    where table_name like '{db_schema_filter}%'
+                )
+            """
+            db_schemas_filter_join = 'AND EXISTS (SELECT 1 FROM object_accessed oa WHERE rq.query_id = oa.query_id)'
+        else:
+            db_schemas_filter_cte = ''
+            db_schemas_filter_join = ''
         query = f"""WITH RankedQueries AS (
             SELECT 
                 QUERY_ID,
@@ -104,14 +150,15 @@ class QueryMetricsCollector(SnowflakeDataCollector):
             FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
             WHERE 
                 TOTAL_ELAPSED_TIME >= {min_execution_time * 1000}
-                AND DATABASE_NAME = 'IDS_PROD'
                 AND START_TIME >= DATEADD('days', -{days}, CURRENT_TIMESTAMP())
                 AND EXECUTION_STATUS = 'SUCCESS'
                 AND QUERY_TYPE = 'SELECT'
         )
-        SELECT *
-        FROM RankedQueries
+        {db_schemas_filter_cte}
+        SELECT rq.*
+        FROM RankedQueries rq
         WHERE RN = 1
+        {db_schemas_filter_join}
         ORDER BY EXECUTION_TIME_SECONDS DESC
         LIMIT {limit};"""
 
