@@ -545,16 +545,13 @@ Do not include any other text in your response."""
         schema_context = ""
         if schema_info:
             for info in schema_info:
-                schema_context += f"""
-                Table: {info.table_name}
-                Columns: 
-                """.lstrip()
+                schema_context += (f"Table: {info.table_name}\n"
+                                   f"Row Count: {info.row_count}\n"
+                                   f"Table Size in Bytes: {info.size_bytes}\n"
+                                   "| COLUMN_NAME | COLUMN_TYPE |\n"
+                                   "| ----------- | ----------- |\n")
                 for column in info.columns:
-                    schema_context += f"{column.column_name}:{column.column_type}\n"
-                schema_context += f"""
-                Row Count: {info.row_count}
-                Table Size in Bytes: {info.size_bytes}
-                """.lstrip()
+                    schema_context += f"| {column.column_name} | {column.column_type} |\n"
 
         # Filter out infrastructure-level suggestions
         query_level_improvements = [
@@ -583,6 +580,7 @@ Focus on query-level optimizations such as:
 Apply these specific improvements:
 {improvements}
 
+Use the following Table Metadatas to help you rewrite your SQL statement
 {schema_context}
 
 Original query:
@@ -600,8 +598,8 @@ The optimized query must return exactly the same results as the original."""
                 user_prompt=generation_prompt.format(
                     query=query,
                     improvements="\n".join(f"- {imp}" for imp in query_level_improvements),
-                    schema_context=schema_context.lstrip()
-                ),
+                    schema_context=schema_context
+                ).lstrip(),
                 max_tokens=2048,
             )
 
@@ -811,15 +809,17 @@ Query to analyze:
                          schema_info: Optional[List[SchemaInfo]] = None) -> List[str]:
         """Get optimization suggestions using a focused prompt."""
 
+        schema_context = ""
         if schema_info:
-            schema_context = "The Query uses the following Table\n"
             for info in schema_info:
-                schema_context += f"""
-                        Table: {info.table_name}
-                        Columns: 
-                        """.lstrip()
+                schema_context += (f"The Query uses the following Table\n"
+                                   f"Table: {info.table_name}\n"
+                                   f"Row Count: {info.row_count}\n"
+                                   f"Table Size in Bytes: {info.size_bytes}\n"
+                                   "| COLUMN_NAME | COLUMN_TYPE |\n"
+                                   "| ----------- | ----------- |\n")
                 for column in info.columns:
-                    schema_context += f"{column.column_name}:{column.column_type}\n"
+                    schema_context += f"| {column.column_name} | {column.column_type} |\n"
         else:
             schema_context = ""
         if identified_antipatterns is not None:

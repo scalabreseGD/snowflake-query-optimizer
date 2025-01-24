@@ -277,10 +277,10 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
             else:
                 raise ValueError('No query or snowpark_job specified')
 
-    def compare_optimized_query_with_original(self, optimized_query, original_query) -> (
+    def compare_optimized_query_with_original(self, optimized_query, original_query, waiting_timeout_in_secs=None) -> (
             pd.DataFrame, pd.DataFrame, pd.DataFrame):
 
-        def gather_query_data(query: str, session: Session, waiting_timeout_in_secs=300):
+        def gather_query_data(query: str, session: Session):
             async_job = session.sql(query).collect(block=False)
             start_time = time.time()
             query_id = async_job.query_id
@@ -295,17 +295,23 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
                                         BYTES_SCANNED / 1024 / 1024 AS MB_SCANNED,
                                         ROWS_PRODUCED,
                                         COMPILATION_TIME / 1000 AS COMPILATION_TIME_SECONDS,
-                                        CREDITS_USED_CLOUD_SERVICES
+                                        CREDITS_USED_CLOUD_SERVICES,
+                                        EXECUTION_STATUS,
+                                        ERROR_MESSAGE
                                 from table(INFORMATION_SCHEMA.QUERY_HISTORY_BY_SESSION({session.session_id})) 
                                 where query_id = '{query_id}' 
-                                and EXECUTION_STATUS = 'SUCCESS'
+                                and EXECUTION_STATUS IN ('SUCCESS', 'FAILED_WITH_ERROR')
                                 """.lstrip()
                 ).to_pandas()
+                print(query_df_qh)
                 if query_df_qh.shape[0] > 0:
+                    failure_df = query_df_qh[query_df_qh['EXECUTION_STATUS'] == 'FAILED_WITH_ERROR']
+                    if failure_df.shape[0] > 0:
+                        raise failure_df['ERROR_MESSAGE'].iloc[0]
                     async_def_job = query_df_qh
                 else:
                     end_time = time.time()
-                    if end_time - start_time > waiting_timeout_in_secs:
+                    if waiting_timeout_in_secs is not None and end_time - start_time > waiting_timeout_in_secs:
                         raise TimeoutError(f'Evaluation ran for more than {waiting_timeout_in_secs}')
                     time.sleep(retry_seconds)
                     retry_seconds *= 2
