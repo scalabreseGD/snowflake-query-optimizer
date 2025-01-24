@@ -548,9 +548,13 @@ Do not include any other text in your response."""
                 schema_context += f"""
                 Table: {info.table_name}
                 Columns: 
-                """
+                """.lstrip()
                 for column in info.columns:
                     schema_context += f"{column.column_name}:{column.column_type}\n"
+                schema_context += f"""
+                Row Count: {info.row_count}
+                Table Size in Bytes: {info.size_bytes}
+                """.lstrip()
 
         # Filter out infrastructure-level suggestions
         query_level_improvements = [

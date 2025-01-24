@@ -4,7 +4,7 @@ import io
 import logging
 import traceback
 import uuid
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 import pandas as pd
 import sqlparse
@@ -12,7 +12,7 @@ import streamlit as st
 
 from snowflake_optimizer.constants import SQL_ANTIPATTERNS
 from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
-from snowflake_optimizer.models import OutputAnalysisModel
+from snowflake_optimizer.models import OutputAnalysisModel, SchemaInfo
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 
 
@@ -32,11 +32,21 @@ def init_common_states(page_id):
         st.session_state[f"{page_id}_clipboard"] = None
 
 
+def __build_affected_objects(schema_info: Optional[List[SchemaInfo]] = None):
+    if schema_info:
+        affected_objects_md = ("Affected Objects:\n"
+                               "| TABLE NAME | ROW COUNT | SIZE IN BYTES |\n"
+                               "|------------|-----------|---------------|\n")
+        for info in schema_info:
+            affected_objects_md += f"|{info.table_name}|{info.row_count}|{info.size_bytes}|\n"
+        st.markdown(affected_objects_md)
+
+
 def create_results_expanders(executor: SnowflakeQueryExecutor, results: List[OutputAnalysisModel]):
     for result in results:
         with st.expander(f"Results for {result['filename']}", expanded=len(results) == 1):
             st.code(result['original_query'], language="sql")
-            st.markdown("Affected Objects: \n* " + '\n* '.join([info.table_name for info in result.schema_info]))
+            __build_affected_objects(schema_info=result.schema_info)
             logging.debug(f'Analysis results - Category: {result["analysis"].category}, '
                           f'Complexity: {result["analysis"].complexity_score:.2f}')
             st.info(f"Category: {result['analysis'].category}")
@@ -265,7 +275,8 @@ def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, op
 
 def show_performance_difference(original_query_df: pd.DataFrame, optimized_query_df: pd.DataFrame,
                                 difference_df: pd.DataFrame):
-    minimum_expected_columns = ['EXECUTION_TIME_SECONDS', 'MB_SCANNED', 'ROWS_PRODUCED', 'COMPILATION_TIME_SECONDS', 'CREDITS_USED_CLOUD_SERVICES']
+    minimum_expected_columns = ['EXECUTION_TIME_SECONDS', 'MB_SCANNED', 'ROWS_PRODUCED', 'COMPILATION_TIME_SECONDS',
+                                'CREDITS_USED_CLOUD_SERVICES']
     st.markdown("### Performance Difference")
     st.markdown("### Original Query")
     st.dataframe(original_query_df)
