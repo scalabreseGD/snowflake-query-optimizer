@@ -307,7 +307,7 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
                 if query_df_qh.shape[0] > 0:
                     failure_df = query_df_qh[query_df_qh['EXECUTION_STATUS'] == 'FAILED_WITH_ERROR']
                     if failure_df.shape[0] > 0:
-                        raise failure_df['ERROR_MESSAGE'].iloc[0]
+                        raise Exception(str(failure_df['ERROR_MESSAGE'].iloc[0]))
                     async_def_job = query_df_qh
                 else:
                     end_time = time.time()
