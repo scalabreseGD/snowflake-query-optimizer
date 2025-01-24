@@ -60,6 +60,24 @@ SQL_ANTIPATTERNS = {
             'description': 'Aggregating data without necessity adds overhead',
             'impact': 'Low',
             'detection': ['GROUP BY without need']
+        },
+        'ODR001': {
+            'name': 'Using Ordinal Numbers in ORDER BY',
+            'description': 'Using column positions instead of names in ORDER BY reduces clarity',
+            'impact': 'Low',
+            'detection': ['ORDER BY 1', 'ORDER BY 2']
+        },
+        'UNN001': {
+            'name': 'Use of UNION Instead of UNION ALL',
+            'description': 'UNION adds unnecessary overhead compared to UNION ALL',
+            'impact': 'Medium',
+            'detection': ['UNION without ALL']
+        },
+        'NSC001': {
+            'name': 'Nesting Scalar Subqueries in SELECT',
+            'description': 'Embedding scalar subqueries in SELECT can be replaced by JOINs or window functions',
+            'impact': 'High',
+            'detection': ['scalar subquery in SELECT']
         }
     },
     'DATA_QUALITY': {
@@ -86,6 +104,18 @@ SQL_ANTIPATTERNS = {
             'description': 'Using UDFs in WHERE clauses can hinder performance',
             'impact': 'Medium',
             'detection': ['UDF in WHERE clause']
+        },
+        'WNC001': {
+            'name': 'WHERE NOT IN Without NULL Check',
+            'description': 'WHERE NOT IN subqueries fail when the result contains NULL values',
+            'impact': 'High',
+            'detection': ['NOT IN (SELECT ...)', 'no NULL check in subquery']
+        },
+        'CND001': {
+            'name': 'NULL in Conditional Expressions',
+            'description': 'NULL values can yield unexpected results in conditional expressions',
+            'impact': 'Medium',
+            'detection': ['NULL with !=', 'NULL with <>, NULL in conditions']
         }
     },
     'COMPLEXITY': {
@@ -106,6 +136,12 @@ SQL_ANTIPATTERNS = {
             'description': 'Excessive Common Table Expressions can reduce readability',
             'impact': 'Low',
             'detection': ['multiple CTEs in query']
+        },
+        'ISJ001': {
+            'name': 'Implicit Self-Joins in Correlated Subqueries',
+            'description': 'Self-references in subqueries can be inefficient and hard to read',
+            'impact': 'Medium',
+            'detection': ['correlated subquery with self-join']
         }
     },
     'BEST_PRACTICE': {
@@ -126,6 +162,18 @@ SQL_ANTIPATTERNS = {
             'description': 'Over-reliance on optimizer hints can reduce portability',
             'impact': 'Low',
             'detection': ['USE INDEX', 'FORCE INDEX']
+        },
+        'DSD001': {
+            'name': 'Overuse of SELECT DISTINCT',
+            'description': 'Using SELECT DISTINCT instead of proper filtering or aggregation',
+            'impact': 'Medium',
+            'detection': ['SELECT DISTINCT without need']
+        },
+        'ADC001': {
+            'name': 'Avoid Derived Column Aliases',
+            'description': 'Failure to alias derived columns reduces clarity',
+            'impact': 'Low',
+            'detection': ['derived column without alias']
         }
     },
     'SECURITY': {
@@ -166,6 +214,12 @@ SQL_ANTIPATTERNS = {
             'description': 'Use of unexplained numeric literals in queries',
             'impact': 'Low',
             'detection': ['hard-coded numbers']
+        },
+        'UNC001': {
+            'name': 'Unused CTEs',
+            'description': 'Defining CTEs that are not referenced in the query',
+            'impact': 'Low',
+            'detection': ['CTE defined but not used']
         }
     }
 }
