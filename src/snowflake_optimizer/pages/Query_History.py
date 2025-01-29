@@ -1,5 +1,6 @@
 import logging, os
 from typing import Optional
+import datetime
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -41,8 +42,39 @@ def render_query_history_view(page_id: str,
     st.header("Query History Analysis")
 
     # Sidebar configuration
+    # Query input methods
+    input_method = st.radio(
+        "Choose input method",
+        ["Direct Input", "History search"]
+    )
+
     with st.spinner('Loading Page'):
-        with st.expander("History Configuration", expanded=False):
+        if input_method == "Direct Input":
+        # with st.expander("Manual Query ID input", expanded=False):
+            st.session_state[f"{page_id}_query_id"] = st.text_input("Query ID")
+            # if st.button(label="Get Query History"):
+            if st.session_state[f"{page_id}_query_id"]:
+                query_history = collector.get_query_history_for_query_id(st.session_state[f"{page_id}_query_id"])
+                query_history['execution_time (hh:mm:ss)'] = query_history['execution_time_seconds'].map(lambda a: str(datetime.timedelta(seconds=a))[:7])
+                row = st.dataframe(
+                    query_history[[
+                        "query_id",
+                        "execution_time (hh:mm:ss)",
+                        "mb_scanned",
+                        "rows_produced"
+                    ]],
+                    hide_index=True,
+                    on_select="rerun",
+                    selection_mode="multi-row"
+                )
+                if len(row['selection']['rows']) > 0:
+                    selected_item = row['selection']['rows'][0]
+                    selected_query = query_history.iloc[selected_item]
+                    st.session_state[f"{page_id}_selected_query_id"] = selected_query['query_id']
+                    st.session_state[f"{page_id}_selected_query"] = format_sql(selected_query['query_text'])
+                    st.session_state[f"{page_id}_formatted_query"] = st.session_state[f"{page_id}_selected_query"]
+        # with st.expander("History Configuration", expanded=False):
+        elif input_method == "History search":
 
             days = st.slider(
                 "Days to analyze",
@@ -96,47 +128,49 @@ def render_query_history_view(page_id: str,
                     logging.error("Cannot fetch queries - Snowflake connection not available")
                     st.error("Snowflake connection not available")
 
-    with st.container():
-        if f"{page_id}_current_page" in st.session_state:
-            query_history, total_pages = collector.get_expensive_queries_paginated(
-                days=days,
-                min_execution_time=min_execution_time,
-                limit=limit,
-                page_size=page_size,
-                page=st.session_state[f"{page_id}_current_page"],
-                db_schema_filter=database_schemas_filter
-            )
-            st.info("Select queries from the dataframe below clicking on the left of the table")
-            row = st.dataframe(
-                query_history[[
-                    "query_id",
-                    "execution_time_seconds",
-                    "mb_scanned",
-                    "rows_produced"
-                ]],
-                hide_index=True,
-                on_select="rerun",
-                selection_mode="multi-row",
-            )
-            prev_col, space_col, next_col = st.columns([1, 3, 1])
-            if prev_col.button("Previous") and st.session_state[f"{page_id}_current_page"] > 0:
-                st.session_state[f"{page_id}_current_page"] -= 1
-            if next_col.button("Next") and st.session_state[f"{page_id}_current_page"] < total_pages - 1:
-                st.session_state[f"{page_id}_current_page"] += 1
-            if len(row['selection']['rows']) > 0:
-                selected_item = row['selection']['rows'][0]
-                selected_query = query_history.iloc[selected_item]
-                st.session_state[f"{page_id}_selected_query_id"] = selected_query['query_id']
-                st.session_state[f"{page_id}_selected_query"] = format_sql(selected_query['query_text'])
-                st.session_state[f"{page_id}_formatted_query"] = st.session_state[f"{page_id}_selected_query"]
+            with st.container():
+                if f"{page_id}_current_page" in st.session_state:
+                    query_history, total_pages = collector.get_expensive_queries_paginated(
+                        days=days,
+                        min_execution_time=min_execution_time,
+                        limit=limit,
+                        page_size=page_size,
+                        page=st.session_state[f"{page_id}_current_page"],
+                        db_schema_filter=database_schemas_filter
+                    )
+                    query_history['execution_time (hh:mm:ss)'] = query_history['execution_time_seconds'].map(lambda a: str(datetime.timedelta(seconds=a))[:7])
+
+                    st.info("Select queries from the dataframe below clicking on the left of the table")
+                    row = st.dataframe(
+                        query_history[[
+                            "query_id",
+                            "execution_time (hh:mm:ss)",
+                            "mb_scanned",
+                            "rows_produced"
+                        ]],
+                        hide_index=True,
+                        on_select="rerun",
+                        selection_mode="multi-row",
+                    )
+                    prev_col, space_col, next_col = st.columns([1, 3, 1])
+                    if prev_col.button("Previous") and st.session_state[f"{page_id}_current_page"] > 0:
+                        st.session_state[f"{page_id}_current_page"] -= 1
+                    if next_col.button("Next") and st.session_state[f"{page_id}_current_page"] < total_pages - 1:
+                        st.session_state[f"{page_id}_current_page"] += 1
+                    if len(row['selection']['rows']) > 0:
+                        selected_item = row['selection']['rows'][0]
+                        selected_query = query_history.iloc[selected_item]
+                        st.session_state[f"{page_id}_selected_query_id"] = selected_query['query_id']
+                        st.session_state[f"{page_id}_selected_query"] = format_sql(selected_query['query_text'])
+                        st.session_state[f"{page_id}_formatted_query"] = st.session_state[f"{page_id}_selected_query"]
 
     with st.container():
-        if st.session_state[f"{page_id}_selected_query"]:
+        # if st.session_state[f"{page_id}_selected_query"] and st.session_state[f"{page_id}_selected_query_id"]:
+        if 'row' in locals():
             st.markdown("### Selected Queries")
             if len(row['selection']['rows']) > 0:
                 for i in row['selection']['rows']:
                     selected_row = query_history.iloc[i]
-
                     with st.expander(f"Query_id: {selected_row['query_id']}"):
                         st.code(format_sql(selected_row['query_text']), language="sql")
 

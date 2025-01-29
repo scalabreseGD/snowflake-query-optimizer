@@ -170,6 +170,49 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 conn
             )
         return df
+    @streamlit.cache_data(show_spinner="Fetching Query ID History")
+    def get_query_history_for_query_id(
+        _self,
+        query_id: str
+    ) -> pd.DataFrame:
+        """Fetch expensive queries from Snowflake query history.
+
+        Args:
+            query_id: Snowflake Query ID
+
+        Returns:
+            DataFrame containing query metrics
+        """
+        query = f"""
+        SELECT 
+                QUERY_ID,
+                QUERY_TEXT,
+                QUERY_HASH,
+                USER_NAME,
+                DATABASE_NAME,
+                SCHEMA_NAME,
+                WAREHOUSE_NAME,
+                TOTAL_ELAPSED_TIME / 1000 AS EXECUTION_TIME_SECONDS,
+                BYTES_SCANNED / 1024 / 1024 AS MB_SCANNED,
+                ROWS_PRODUCED,
+                COMPILATION_TIME / 1000 AS COMPILATION_TIME_SECONDS,
+                EXECUTION_STATUS,
+                ERROR_MESSAGE,
+                START_TIME,
+                END_TIME,
+                PARTITIONS_SCANNED,
+                PARTITIONS_TOTAL,
+                BYTES_SPILLED_TO_LOCAL_STORAGE / 1024 / 1024 AS MB_SPILLED_TO_LOCAL,
+                BYTES_SPILLED_TO_REMOTE_STORAGE / 1024 / 1024 AS MB_SPILLED_TO_REMOTE
+            FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
+            WHERE 
+                QUERY_ID = '{query_id}';"""
+        with _self._engine.connect() as conn:
+            df = pd.read_sql(
+                    query,
+                    conn
+                )
+        return df
 
     @streamlit.cache_data(show_spinner=False)
     def get_impacted_objects(_self, query_id: str) -> pd.DataFrame:
@@ -188,7 +231,14 @@ class QueryMetricsCollector(SnowflakeDataCollector):
             from snowflake.account_usage.access_history
             , lateral flatten(base_objects_accessed) boa
             where query_id = '{query_id}'
-            and  boa.value:"objectDomain"::string='Table';"""
+            and  boa.value:"objectDomain"::string='Table'
+            union all
+            select 
+                doa.value:"objectName"::string as table_name
+            from snowflake.account_usage.access_history,
+            lateral flatten(direct_objects_accessed) doa
+            where query_id ='{query_id}'
+            and  doa.value:"objectDomain"::string='View';"""
         with _self._engine.connect() as conn:
             df = pd.read_sql(query, conn)
         return df

@@ -64,7 +64,7 @@ class QueryAnalyzer:
     ],
     "suggestions": [
         "Replace SELECT * with specific column names",
-        "Add index on created_at for better filtering"
+        "Use explicit column names or aliases to enhance readability and maintainability"
     ],
     "complexity_score": 0.6
 }"""
@@ -98,14 +98,6 @@ Respond with a JSON object containing exactly these fields:
   - suggestion: How to fix
 - suggestions: Array of optimization suggestions
 - complexity_score: Number between 0 and 1
-
-Available antipattern codes:
-- PERFORMANCE: FTS001 (Full Table Scan), IJN001 (Inefficient Join), IDX001 (Missing Index), LDT001 (Large Data Transfer)
-- DATA_QUALITY: NUL001 (Null Handling), DTM001 (Date/Time Manipulation)
-- COMPLEXITY: NSQ001 (Nested Subquery), CJN001 (Complex Join)
-- BEST_PRACTICE: WCD001 (Weak Column Definition), ALS001 (Ambiguous Column Selection)
-- SECURITY: INJ001 (SQL Injection Risk), PRM001 (Permission Issues)
-- MAINTAINABILITY: CMT001 (Missing Comments), FMT001 (Poor Formatting)
 
 Example query:
 SELECT * FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.created_at > '2024-01-01'
@@ -263,8 +255,8 @@ Do not include any other text in your response."""
             antipatterns.append("Uses DISTINCT which might indicate a join problem")
 
         # Check for non-SARGable conditions
-        if 'LIKE' in query.upper() and '%' in query:
-            antipatterns.append("Contains leading wildcard LIKE which prevents index usage")
+        # if 'LIKE' in query.upper() and '%' in query:
+        #     antipatterns.append("Contains leading wildcard LIKE which prevents index usage")
 
         return antipatterns
 
@@ -557,7 +549,7 @@ Do not include any other text in your response."""
         query_level_improvements = [
             imp for imp in improvements
             if not any(keyword in imp.lower() for keyword in [
-                "cluster", "materiali", "cache", "index", "partition"
+                "cluster", "materiali", "cache", "partition"
             ])
         ]
 
@@ -756,7 +748,7 @@ The optimized query must return exactly the same results as the original."""
         antipattern_prompt = f"""Analyze this SQL query for antipatterns.
 For each antipattern found, provide the following information in plain text format:
 ```
-CODE: (use one from the list below)
+CODE: (use only one from the list below, don't use any other)
 NAME: (name of the antipattern)
 DESCRIPTION: (brief description)
 IMPACT: (High, Medium, or Low)
@@ -833,7 +825,7 @@ Query to analyze:
         
         Analyze this SQL query and suggest optimizations.
         Provide each suggestion on a new line starting with '- '.
-        Focus on query structure, indexes, and Snowflake features.
+        Focus on query structure and Snowflake features.
         Keep each suggestion brief and actionable.
 
         {schema_context.lstrip()}
@@ -954,48 +946,51 @@ Query to analyze:
             category, category_explanation = self._get_category(query)
 
             # Get Snowflake-specific suggestions
-            try:
-                clustering_suggestions = self._suggest_clustering_keys(query, schema_info)
-                materialization_suggestions = self._suggest_materialized_views(query, schema_info)
-                search_suggestions = self._suggest_search_optimization(query)
-                caching_suggestions = self._suggest_caching_strategy(query)
+            # try:
+            #     clustering_suggestions = self._suggest_clustering_keys(query, schema_info)
+            #     materialization_suggestions = self._suggest_materialized_views(query, schema_info)
+            #     search_suggestions = self._suggest_search_optimization(query)
+                # caching_suggestions = self._suggest_caching_strategy(query)
 
-                all_suggestions = (
-                        suggestions +
-                        clustering_suggestions +
-                        materialization_suggestions +
-                        search_suggestions +
-                        caching_suggestions
-                )
-            except Exception as e:
-                print(f"Error getting additional suggestions: {str(e)}")
-                all_suggestions = suggestions
-                materialization_suggestions = []
+                # all_suggestions = (
+                #         suggestions +
+                #         clustering_suggestions +
+                #         materialization_suggestions +
+                #         search_suggestions
+                #         caching_suggestions
+                # )
+            # except Exception as e:
+            #     print(f"Error getting additional suggestions: {str(e)}")
+            #     all_suggestions = suggestions
+            #     materialization_suggestions = []
 
             # Generate optimized query with validation
             optimized_query = self._generate_optimized_query(
                 query,
-                all_suggestions if all_suggestions else ["Optimize query structure and performance"],
+                # all_suggestions if all_suggestions else ["Optimize query structure and performance"],
+                suggestions if suggestions else ["Optimize query structure and performance"],
                 schema_info
             )
         except Exception as e:
             print(f"Error in analysis: {str(e)}")
             # Fall back to basic analysis
             antipatterns = self._identify_antipatterns(query)
-            all_suggestions = []
+            # all_suggestions = []
+            suggestions = []
             materialization_suggestions = []
 
         return QueryAnalysis(
             original_query=query,
             optimized_query=optimized_query,
             antipatterns=antipatterns,
-            suggestions=all_suggestions,
+            # suggestions=all_suggestions,
+            suggestions=suggestions,
             confidence_score=0.8 if optimized_query else 0.5,
             category=category,
             complexity_score=complexity_score,
             estimated_cost=None,
-            materialization_suggestions=materialization_suggestions,
-            index_suggestions=self._suggest_indexes(query, schema_info)
+            # materialization_suggestions=materialization_suggestions
+            # index_suggestions=self._suggest_indexes(query, schema_info)
         )
 
     def analyze_query(self, queries: List[InputAnalysisModel]) -> List[OutputAnalysisModel]:
