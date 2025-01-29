@@ -7,6 +7,7 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import AzureOpenAI
 
+from snowflake_optimizer.ai_clients import BaseAIClient
 from snowflake_optimizer.cache import SQLiteCache, BaseCache
 from snowflake_optimizer.data_collector import QueryMetricsCollector, SnowflakeQueryExecutor
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
@@ -61,6 +62,7 @@ def initialize_connections(page_id, cache: BaseCache = None) -> tuple[
             warehouse=st.secrets["SNOWFLAKE_WAREHOUSE"],
             database=st.secrets.get("SNOWFLAKE_DATABASE"),
             schema=st.secrets.get("SNOWFLAKE_SCHEMA"),
+            role=st.secrets.get("SNOWFLAKE_ROLE")
         )
         logging.info("Successfully connected to Snowflake")
     except Exception as e:
@@ -69,16 +71,17 @@ def initialize_connections(page_id, cache: BaseCache = None) -> tuple[
         collector = None
 
     try:
-        api_key = st.secrets['API_KEY']
-        api_version = st.secrets['API_VERSION']
-        api_endpoint = st.secrets['API_ENDPOINT']
-        model_name = st.secrets['DEPLOYMENT_NAME']
-        azure_openai_client = AzureOpenAI(azure_endpoint=api_endpoint,
-                                          api_key=api_key,
-                                          api_version=api_version,
-                                          )
+        # api_key = st.secrets['API_KEY']
+        # api_version = st.secrets['API_VERSION']
+        # api_endpoint = st.secrets['API_ENDPOINT']
+        model_name = st.secrets['MODEL_NAME']
+        azure_openai_client = BaseAIClient.build_from_api_type(st.secrets['API_TYPE'], st.secrets.to_dict())
+        # azure_openai_client = AzureOpenAI(azure_endpoint=api_endpoint,
+        #                                   api_key=api_key,
+        #                                   api_version=api_version,
+        #                                   )
         logging.debug("Initializing Query Analyzer")
-        logging.debug(f"API key length: {len(api_key)}")
+        # logging.debug(f"API key length: {len(api_key)}")
         if f'{page_id}_analyzer' not in st.session_state:
             analyzer = QueryAnalyzer(
                 openai_client=azure_openai_client,
@@ -106,6 +109,7 @@ def get_snowflake_query_executor():
             warehouse=st.secrets["SNOWFLAKE_WAREHOUSE"],
             database=st.secrets.get("SNOWFLAKE_DATABASE"),
             schema=st.secrets.get("SNOWFLAKE_SCHEMA"),
+            role=st.secrets.get("SNOWFLAKE_ROLE")
         )
     except Exception as e:
         logging.error(f"Failed to connect to Snowflake: {str(e)}")

@@ -9,6 +9,7 @@ import sqlparse
 from openai import OpenAI
 from sqlglot import parse_one, exp
 
+from snowflake_optimizer.ai_clients import BaseAIClient
 from snowflake_optimizer.cache import BaseCache
 from snowflake_optimizer.models import SchemaInfo, QueryCategory, QueryAnalysis, InputAnalysisModel, OutputAnalysisModel
 from snowflake_optimizer.constants import SQL_ANTIPATTERNS
@@ -18,7 +19,7 @@ class QueryAnalyzer:
     """Analyzes and optimizes SQL queries using LLMs."""
 
     def __init__(
-            self, openai_client: OpenAI,
+            self, openai_client: BaseAIClient,
             openai_model: str,
             cache: BaseCache = None):
         """Initialize the analyzer with API credentials."""
@@ -135,8 +136,7 @@ Query to analyze:
         if cache_results:
             return cache_results
         else:
-            results = self.client.chat.completions.create(
-                model=self.model,
+            results = self.client.invoke(
                 messages=messages,
                 **chat_kwargs
             ).choices[0].message.content

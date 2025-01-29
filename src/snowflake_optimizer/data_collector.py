@@ -21,6 +21,7 @@ class SnowflakeDataCollector:
             warehouse: str,
             database: Optional[str] = None,
             schema: Optional[str] = None,
+            role: Optional[str] = None,
     ):
         """Initialize the collector with Snowflake credentials.
 
@@ -39,11 +40,21 @@ class SnowflakeDataCollector:
             "warehouse": warehouse,
             "database": database,
             "schema": schema,
+            "role": role,
         }
+        # / < database_name > / < schema_name >?warehouse = < warehouse_name > & role = < role_name > '
+        sf_url_template = 'snowflake://{user}:{password}@{account}'
+        if database:
+            sf_url_template += '/{database}'
+        if schema:
+            sf_url_template += '/{schema}'
+        sf_url = sf_url_template.format(**self.__connection_params)
+        if warehouse or role:
+            qp = '&'.join(f"{k}={v}" for k, v in {"warehouse": warehouse,
+                                                  "role": role}.items())
+            sf_url += f'?{qp}'
         self._engine = create_engine(
-            'snowflake://{user}:{password}@{account}/'.format(
-                **self.__connection_params
-            )
+            sf_url
         )
 
         self._snowpark_session_generator: Callable[[], Session] = lambda: Session.builder.configs(
