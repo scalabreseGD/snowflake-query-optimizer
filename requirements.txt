@@ -15,3 +15,4 @@ black>=23.12.1
 mypy>=1.8.0
 sqlglot>=19.9.0
 openpyxl
+opik

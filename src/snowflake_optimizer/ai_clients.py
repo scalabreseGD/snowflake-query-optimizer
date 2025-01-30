@@ -1,14 +1,21 @@
 import re
 from typing import Any, Dict, Literal
 
+import opik
 from openai import OpenAI, AzureOpenAI
-from openai.types.chat import ChatCompletion
+from opik.integrations.openai import track_openai
 
 
 class BaseAIClient:
 
     def __init__(self, client, model_name):
-        self.client = client
+        opik.configure(use_local=True,
+                       url='http://localhost:5173/api',
+                       workspace='default',
+                       force=True
+                       )
+
+        self.client = track_openai(client)
         self.model_name = model_name
 
     @classmethod
