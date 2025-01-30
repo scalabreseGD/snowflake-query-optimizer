@@ -102,24 +102,16 @@ class QueryMetricsCollector(SnowflakeDataCollector):
         if db_schema_filter != '':
             db_schemas_filter_cte = f"""
                 ,access_history_by_qid as (
-                    select query_id, base_objects_accessed, direct_objects_accessed
+                    select query_id, direct_objects_accessed
                     from snowflake.account_usage.access_history
                 ),
                 object_accessed as (
                     select distinct query_id
                     from (
-                        (
                             select query_id, doa.value:"objectName"::string as table_name,
                             from access_history_by_qid,
                             lateral flatten(direct_objects_accessed) doa
                         )
-                        union all
-                        (
-                            select query_id, boa.value:"objectName"::string as table_name,
-                            from access_history_by_qid,
-                            lateral flatten(base_objects_accessed) boa
-                        )
-                    )
                     where table_name like '{db_schema_filter}%'
                 )
             """
