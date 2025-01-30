@@ -234,7 +234,7 @@ def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, op
     result_columns = st.columns([0.1, 0.8, 0.1])
     with result_columns[1]:
         waiting_time_in_seconds = st.slider(label="Comparing timeout in seconds. 0 is no timeout", min_value=0,
-                                            max_value=3600, value=600)
+                                            max_value=3600, value=600, key=hashlib.sha256(original.encode()).hexdigest()[:16])
         if st.button('Compare Original and Optimized', key=hashlib.sha256(original.encode()).hexdigest()[:32]):
             with st.spinner("Comparing original and optimized queries..."):
                 original_query_df, optimized_query_df, difference_df = executor.compare_optimized_query_with_original(

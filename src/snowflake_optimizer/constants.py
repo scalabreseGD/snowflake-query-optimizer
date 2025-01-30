@@ -13,12 +13,6 @@ SQL_ANTIPATTERNS = {
             'impact': 'High',
             'detection': ['CROSS JOIN', 'cartesian product', 'missing JOIN condition']
         },
-        'IDX001': {
-            'name': 'Missing Index',
-            'description': 'Frequently filtered or joined columns lack appropriate indexes',
-            'impact': 'High',
-            'detection': ['frequently filtered column', 'join key without index']
-        },
         'LDT001': {
             'name': 'Large Data Transfer',
             'description': 'Query retrieves excessive data volume',

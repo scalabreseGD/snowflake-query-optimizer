@@ -45,8 +45,8 @@ class QueryAnalysis:
     category: QueryCategory = QueryCategory.UNKNOWN
     complexity_score: float = 0.0
     estimated_cost: Optional[float] = None
-    materialization_suggestions: List[str] = None
-    index_suggestions: List[str] = None
+    materialization_suggestions: Optional[List[str]] = None
+    index_suggestions: Optional[List[str]] = None
 
 
 class InputAnalysisModel(BaseModel):
