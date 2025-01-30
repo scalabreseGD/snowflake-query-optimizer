@@ -6,6 +6,7 @@ import traceback
 import uuid
 from typing import List, Dict, Optional
 import datetime
+from decimal import Decimal
 
 import pandas as pd
 import sqlparse
@@ -291,15 +292,24 @@ def show_performance_difference(original_query_df: pd.DataFrame, optimized_query
     difference_records = difference_df.to_dict(orient='records')[0]
     if all([key in minimum_expected_columns for key in difference_records.keys()]):
         for column_name, column_value in difference_records.items():
+            if column_name in ["EXECUTION_TIME_SECONDS", "COMPILATION_TIME_SECONDS"]:
+                column_name = column_name.replace("_SECONDS",'')
+                column_value_formatted = str(datetime.timedelta(seconds=abs(column_value)))
+            elif column_name == "CREDITS_USED_CLOUD_SERVICES":
+                column_value_formatted="{:.6f}".format(abs(column_value))
+            elif column_name in ["MB_SCANNED", "ROWS_PRODUCED"]:
+                column_value_formatted=int(column_value)
+            else:
+                column_value_formatted = column_value
             if column_value < 0:
                 if column_name != 'ROWS_PRODUCED':
-                    st.success(f"{column_name}: {column_value}")
+                    st.success(f"{column_name}: {column_value_formatted}")
                 else:
-                    st.error(f"{column_name}: {column_value}")
+                    st.error(f"{column_name}: {column_value_formatted}")
             elif column_value == 0:
-                st.warning(f"{column_name}: {column_value}")
+                st.warning(f"{column_name}: {column_value_formatted}")
             else:
-                st.error(f"{column_name}: {column_value}")
+                st.error(f"{column_name}: {column_value_formatted}")
     else:
         raise ValueError(f'{minimum_expected_columns} is missing in {difference_records.keys()}')
 
