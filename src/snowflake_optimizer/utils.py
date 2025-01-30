@@ -5,6 +5,8 @@ import logging
 import traceback
 import uuid
 from typing import List, Dict, Optional
+import datetime
+from decimal import Decimal
 
 import pandas as pd
 import sqlparse
@@ -281,24 +283,33 @@ def show_performance_difference(original_query_df: pd.DataFrame, optimized_query
                                 difference_df: pd.DataFrame):
     minimum_expected_columns = ['EXECUTION_TIME_SECONDS', 'MB_SCANNED', 'ROWS_PRODUCED', 'COMPILATION_TIME_SECONDS',
                                 'CREDITS_USED_CLOUD_SERVICES']
-    st.markdown("### Performance Difference")
     st.markdown("### Original Query")
-    st.dataframe(original_query_df)
+    st.dataframe(format_time_columns(original_query_df))
     st.markdown("### Optimized Query")
-    st.dataframe(optimized_query_df)
+    st.dataframe(format_time_columns(optimized_query_df))
 
+    st.markdown("### Performance Difference")
     difference_records = difference_df.to_dict(orient='records')[0]
     if all([key in minimum_expected_columns for key in difference_records.keys()]):
         for column_name, column_value in difference_records.items():
+            if column_name in ["EXECUTION_TIME_SECONDS", "COMPILATION_TIME_SECONDS"]:
+                column_name = column_name.replace("_SECONDS",'')
+                column_value_formatted = str(datetime.timedelta(seconds=abs(column_value)))
+            elif column_name == "CREDITS_USED_CLOUD_SERVICES":
+                column_value_formatted="{:.6f}".format(abs(column_value))
+            elif column_name in ["MB_SCANNED", "ROWS_PRODUCED"]:
+                column_value_formatted=int(column_value)
+            else:
+                column_value_formatted = column_value
             if column_value < 0:
                 if column_name != 'ROWS_PRODUCED':
-                    st.success(f"{column_name}: {column_value}")
+                    st.success(f"{column_name}: {column_value_formatted}")
                 else:
-                    st.error(f"{column_name}: {column_value}")
+                    st.error(f"{column_name}: {column_value_formatted}")
             elif column_value == 0:
-                st.warning(f"{column_name}: {column_value}")
+                st.warning(f"{column_name}: {column_value_formatted}")
             else:
-                st.error(f"{column_name}: {column_value}")
+                st.error(f"{column_name}: {column_value_formatted}")
     else:
         raise ValueError(f'{minimum_expected_columns} is missing in {difference_records.keys()}')
 
@@ -488,3 +499,20 @@ def split_sql_queries(content: str) -> List[str]:
 
     print(f"Total queries found: {len(queries)}")
     return queries
+
+def format_time_columns(df: pd.DataFrame) -> pd.DataFrame: 
+    columns_mapping = {
+        'EXECUTION_TIME_SECONDS': 'EXECUTION_TIME',
+        'COMPILATION_TIME_SECONDS': 'COMPILATION_TIME'
+    }
+    new_columns = []
+    for old_col, new_col in columns_mapping.items():
+        if old_col in df.columns:
+            df[new_col] = df[old_col].map(lambda a: str(datetime.timedelta(seconds=a))[:10])
+            df.drop(columns=[old_col], inplace=True)
+            new_columns.append(new_col)
+    
+    #Reorder columns to have time at the beginning for better visibility
+    df = df[[col for col in new_columns if col in df.columns] + [col for col in df.columns if col not in new_columns]]
+
+    return df
