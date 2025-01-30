@@ -45,7 +45,9 @@ def render_query_history_view(page_id: str,
     # Query input methods
     input_method = st.radio(
         "Choose input method",
-        ["Direct Input", "History search"]
+        ["Direct Input", "History search"],
+        disabled=not (f"{page_id}_query_id" not in st.session_state and f"{page_id}_current_page" not in st.session_state),
+        help="Refresh page to choose other method"
     )
 
     with st.spinner('Loading Page'):
