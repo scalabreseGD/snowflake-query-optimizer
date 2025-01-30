@@ -64,7 +64,8 @@ def render_manual_analysis_view(page_id: str,
 
         if query:
             st.markdown("### Preview")
-            st.code(query, language="sql")
+            with st.expander(f"Inserted query"):
+                st.code(query, language="sql")
 
         # Optional schema information
         if st.checkbox("Add table schema information"):
@@ -92,7 +93,7 @@ def render_manual_analysis_view(page_id: str,
             except json.JSONDecodeError:
                 st.error("Invalid JSON format for columns")
                 st.session_state[f"{page_id}_schema_info"] = None
-
+        st.session_state[f"{page_id}_file_name"] = 'Direct Input'
         analyze_button = st.button("Analyze", on_click=lambda: __analyze_query_callback(page_id, analyzer))
 
     elif input_method == "File Upload":
@@ -199,7 +200,7 @@ def __analyze_query_callback(page_id, analyzer: Optional[QueryAnalyzer]):
 
     try:
         print(f'Analyzing query of length: {len(st.session_state[f"{page_id}_formatted_query"])}')
-        file_name = st.session_state.get(f"{page_id}_file_name", 'UI QUERY')
+        file_name = st.session_state.get(f"{page_id}_file_name", 'Direct Input')
         result = analyzer.analyze_query(
             [InputAnalysisModel(
                 file_name_or_query_id=file_name,
