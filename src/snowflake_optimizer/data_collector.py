@@ -140,6 +140,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 PARTITIONS_TOTAL,
                 BYTES_SPILLED_TO_LOCAL_STORAGE / 1024 / 1024 AS MB_SPILLED_TO_LOCAL,
                 BYTES_SPILLED_TO_REMOTE_STORAGE / 1024 / 1024 AS MB_SPILLED_TO_REMOTE,
+                CREDITS_USED_CLOUD_SERVICES,
                 ROW_NUMBER() OVER (PARTITION BY QUERY_HASH ORDER BY START_TIME DESC) AS RN
             FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
             WHERE 
@@ -195,7 +196,8 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 PARTITIONS_SCANNED,
                 PARTITIONS_TOTAL,
                 BYTES_SPILLED_TO_LOCAL_STORAGE / 1024 / 1024 AS MB_SPILLED_TO_LOCAL,
-                BYTES_SPILLED_TO_REMOTE_STORAGE / 1024 / 1024 AS MB_SPILLED_TO_REMOTE
+                BYTES_SPILLED_TO_REMOTE_STORAGE / 1024 / 1024 AS MB_SPILLED_TO_REMOTE,
+                CREDITS_USED_CLOUD_SERVICES
             FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
             WHERE 
                 QUERY_ID = '{query_id}';"""
@@ -319,7 +321,7 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
             else:
                 raise ValueError('No query or snowpark_job specified')
 
-    def compare_optimized_query_with_original(self, optimized_query, original_query, waiting_timeout_in_secs=None) -> (
+    def compare_optimized_query_with_original(self, optimized_query, original_query: Optional[str], original_query_history: Optional[pd.Series] = pd.Series([]), waiting_timeout_in_secs=None) -> (
             pd.DataFrame, pd.DataFrame, pd.DataFrame):
 
         def gather_query_data(query: str, session: Session):
@@ -358,14 +360,23 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
                     time.sleep(retry_seconds)
                     retry_seconds *= 2
             return async_def_job
-
-        original_query_df = self.execute_query_in_transaction(
+        
+        if not original_query_history.empty:
+            original_query_history = pd.DataFrame([original_query_history])
+            original_query_history.columns = original_query_history.columns.str.upper()
+            original_query_df = original_query_history
+        else:
+            original_query_df = self.execute_query_in_transaction(
             snowpark_job=lambda session: gather_query_data(original_query, session))
-        num_columns = original_query_df.select_dtypes(include=['number']).columns
-        original_query_df = original_query_df[num_columns]
+            num_columns = original_query_df.select_dtypes(include=['number']).columns
+            original_query_df = original_query_df[num_columns]
+
         optimized_query_df = self.execute_query_in_transaction(
             snowpark_job=lambda session: gather_query_data(optimized_query, session))
+        num_columns = optimized_query_df.select_dtypes(include=['number']).columns
         optimized_query_df = optimized_query_df[num_columns]
+        original_query_df = original_query_df[num_columns]
+        
         # Compute the differences
         diff_values = optimized_query_df[num_columns].iloc[0] - original_query_df[num_columns].iloc[0]
         return original_query_df, optimized_query_df, diff_values.to_frame().transpose()

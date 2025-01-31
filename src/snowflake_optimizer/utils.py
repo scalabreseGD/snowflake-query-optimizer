@@ -44,7 +44,7 @@ def __build_affected_objects(schema_info: Optional[List[SchemaInfo]] = None):
         st.markdown(affected_objects_md)
 
 
-def create_results_expanders(executor: SnowflakeQueryExecutor, results: List[OutputAnalysisModel]):
+def create_results_expanders(executor: SnowflakeQueryExecutor, results: List[OutputAnalysisModel], original_query_history: Optional[pd.Series] = pd.Series([])):
     for result in results:
         with st.expander(f"Results for {result['filename']}", expanded=len(results) == 1):
             st.code(result['original_query'], language="sql")
@@ -74,7 +74,8 @@ def create_results_expanders(executor: SnowflakeQueryExecutor, results: List[Out
                 display_query_comparison(
                     executor,
                     result.original_query,
-                    result.analysis.optimized_query
+                    result.analysis.optimized_query,
+                    original_query_history
                 )
 
 
@@ -213,7 +214,7 @@ def create_excel_report(batch_results: List[OutputAnalysisModel]) -> bytes:
     return excel_data
 
 
-def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, optimized: str):
+def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, optimized: str, original_query_history: Optional[pd.Series] = pd.Series([])):
     """Display a side-by-side comparison of original and optimized queries."""
     if not original or not optimized:
         print("Missing query for comparison!")
@@ -226,7 +227,10 @@ def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, op
 
     with col1:
         st.markdown("**Original Query**")
-        formatted_original = format_sql(original)
+        if original:
+            formatted_original = format_sql(original)
+        else:
+            formatted_original = format_sql(original_query_history['query_text'])
         st.code(formatted_original, language="sql")
 
     with col2:
@@ -242,6 +246,7 @@ def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, op
                 original_query_df, optimized_query_df, difference_df = executor.compare_optimized_query_with_original(
                     optimized_query=optimized,
                     original_query=original,
+                    original_query_history=original_query_history,
                     waiting_timeout_in_secs=waiting_time_in_seconds if waiting_time_in_seconds != 0 else None
                 )
                 show_performance_difference(original_query_df, optimized_query_df, difference_df)
