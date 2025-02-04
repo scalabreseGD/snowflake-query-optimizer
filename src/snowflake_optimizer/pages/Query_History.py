@@ -216,7 +216,7 @@ def render_query_history_view(page_id: str,
         if st.session_state[f"{page_id}_analysis_results"]:
             st.markdown("### Analysis Results")
             # create_results_expanders(st.session_state[f"{page_id}_analysis_results"])
-            create_results_expanders(executor, st.session_state[f"{page_id}_analysis_results"])
+            create_results_expanders(executor, st.session_state[f"{page_id}_analysis_results"], selected_row)
             create_export_excel_from_results(st.session_state[f"{page_id}_analysis_results"])
 
 

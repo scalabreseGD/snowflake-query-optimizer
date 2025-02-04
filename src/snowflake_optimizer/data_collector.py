@@ -102,24 +102,16 @@ class QueryMetricsCollector(SnowflakeDataCollector):
         if db_schema_filter != '':
             db_schemas_filter_cte = f"""
                 ,access_history_by_qid as (
-                    select query_id, base_objects_accessed, direct_objects_accessed
+                    select query_id, direct_objects_accessed
                     from snowflake.account_usage.access_history
                 ),
                 object_accessed as (
                     select distinct query_id
                     from (
-                        (
                             select query_id, doa.value:"objectName"::string as table_name,
                             from access_history_by_qid,
                             lateral flatten(direct_objects_accessed) doa
                         )
-                        union all
-                        (
-                            select query_id, boa.value:"objectName"::string as table_name,
-                            from access_history_by_qid,
-                            lateral flatten(base_objects_accessed) boa
-                        )
-                    )
                     where table_name like '{db_schema_filter}%'
                 )
             """
@@ -148,6 +140,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 PARTITIONS_TOTAL,
                 BYTES_SPILLED_TO_LOCAL_STORAGE / 1024 / 1024 AS MB_SPILLED_TO_LOCAL,
                 BYTES_SPILLED_TO_REMOTE_STORAGE / 1024 / 1024 AS MB_SPILLED_TO_REMOTE,
+                CREDITS_USED_CLOUD_SERVICES,
                 ROW_NUMBER() OVER (PARTITION BY QUERY_HASH ORDER BY START_TIME DESC) AS RN
             FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
             WHERE 
@@ -203,7 +196,8 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 PARTITIONS_SCANNED,
                 PARTITIONS_TOTAL,
                 BYTES_SPILLED_TO_LOCAL_STORAGE / 1024 / 1024 AS MB_SPILLED_TO_LOCAL,
-                BYTES_SPILLED_TO_REMOTE_STORAGE / 1024 / 1024 AS MB_SPILLED_TO_REMOTE
+                BYTES_SPILLED_TO_REMOTE_STORAGE / 1024 / 1024 AS MB_SPILLED_TO_REMOTE,
+                CREDITS_USED_CLOUD_SERVICES
             FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
             WHERE 
                 QUERY_ID = '{query_id}';"""
@@ -327,10 +321,12 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
             else:
                 raise ValueError('No query or snowpark_job specified')
 
-    def compare_optimized_query_with_original(self, optimized_query, original_query, waiting_timeout_in_secs=None) -> (
+    def compare_optimized_query_with_original(self, optimized_query, original_query: Optional[str], original_query_history: Optional[pd.Series] = pd.Series([]), waiting_timeout_in_secs=None) -> (
             pd.DataFrame, pd.DataFrame, pd.DataFrame):
 
-        def gather_query_data(query: str, session: Session):
+        def gather_query_data(query: str, session: Session, original_wh: Optional[str]=None):
+            if original_wh:
+                session.use_warehouse(original_wh)
             async_job = session.sql(query).collect(block=False)
             start_time = time.time()
             query_id = async_job.query_id
@@ -366,16 +362,26 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
                     time.sleep(retry_seconds)
                     retry_seconds *= 2
             return async_def_job
-
-        original_query_df = self.execute_query_in_transaction(
+        
+        if not original_query_history.empty:
+            original_query_history = pd.DataFrame([original_query_history])
+            original_query_history.columns = original_query_history.columns.str.upper()
+            original_query_df = original_query_history
+        else:
+            original_query_df = self.execute_query_in_transaction(
             snowpark_job=lambda session: gather_query_data(original_query, session))
-        num_columns = original_query_df.select_dtypes(include=['number']).columns
-        original_query_df = original_query_df[num_columns]
+            num_columns = original_query_df.select_dtypes(include=['number']).columns
+            original_query_df = original_query_df[num_columns]
+
+        original_wh = original_query_history["WAREHOUSE_NAME"].iloc[0]
         optimized_query_df = self.execute_query_in_transaction(
-            snowpark_job=lambda session: gather_query_data(optimized_query, session))
+            snowpark_job=lambda session: gather_query_data(optimized_query, session, original_wh))
+        num_columns = optimized_query_df.select_dtypes(include=['number']).columns
         optimized_query_df = optimized_query_df[num_columns]
+        original_query_df = original_query_df[num_columns]
+        
         # Compute the differences
-        diff_values = optimized_query_df[num_columns].iloc[0] - original_query_df[num_columns].iloc[0]
+        diff_values = (original_query_df[num_columns].iloc[0] - optimized_query_df[num_columns].iloc[0])
         return original_query_df, optimized_query_df, diff_values.to_frame().transpose()
 
     def compile_query(self, query) -> Optional[str]:

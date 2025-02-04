@@ -4,6 +4,7 @@ import io
 import logging
 import traceback
 import uuid
+import re
 from typing import List, Dict, Optional
 import datetime
 from decimal import Decimal
@@ -44,7 +45,7 @@ def __build_affected_objects(schema_info: Optional[List[SchemaInfo]] = None):
         st.markdown(affected_objects_md)
 
 
-def create_results_expanders(executor: SnowflakeQueryExecutor, results: List[OutputAnalysisModel]):
+def create_results_expanders(executor: SnowflakeQueryExecutor, results: List[OutputAnalysisModel], original_query_history: Optional[pd.Series] = pd.Series([])):
     for result in results:
         with st.expander(f"Results for {result['filename']}", expanded=len(results) == 1):
             st.code(result['original_query'], language="sql")
@@ -74,7 +75,8 @@ def create_results_expanders(executor: SnowflakeQueryExecutor, results: List[Out
                 display_query_comparison(
                     executor,
                     result.original_query,
-                    result.analysis.optimized_query
+                    result.analysis.optimized_query,
+                    original_query_history
                 )
 
 
@@ -213,7 +215,7 @@ def create_excel_report(batch_results: List[OutputAnalysisModel]) -> bytes:
     return excel_data
 
 
-def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, optimized: str):
+def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, optimized: str, original_query_history: Optional[pd.Series] = pd.Series([])):
     """Display a side-by-side comparison of original and optimized queries."""
     if not original or not optimized:
         print("Missing query for comparison!")
@@ -226,7 +228,10 @@ def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, op
 
     with col1:
         st.markdown("**Original Query**")
-        formatted_original = format_sql(original)
+        if original:
+            formatted_original = format_sql(original)
+        else:
+            formatted_original = format_sql(original_query_history['query_text'])
         st.code(formatted_original, language="sql")
 
     with col2:
@@ -238,13 +243,17 @@ def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, op
         waiting_time_in_seconds = st.slider(label="Comparing timeout in seconds. 0 is no timeout", min_value=0,
                                             max_value=3600, value=600, key=hashlib.sha256(original.encode()).hexdigest()[:16])
         if st.button('Compare Original and Optimized', key=hashlib.sha256(original.encode()).hexdigest()[:32]):
-            with st.spinner("Comparing original and optimized queries..."):
-                original_query_df, optimized_query_df, difference_df = executor.compare_optimized_query_with_original(
-                    optimized_query=optimized,
-                    original_query=original,
-                    waiting_timeout_in_secs=waiting_time_in_seconds if waiting_time_in_seconds != 0 else None
-                )
+            if is_safe_select_query(optimized):
+                with st.spinner("Comparing original and optimized queries..."):
+                    original_query_df, optimized_query_df, difference_df = executor.compare_optimized_query_with_original(
+                        optimized_query=optimized,
+                        original_query=original,
+                        original_query_history=original_query_history,
+                        waiting_timeout_in_secs=waiting_time_in_seconds if waiting_time_in_seconds != 0 else None
+                    )
                 show_performance_difference(original_query_df, optimized_query_df, difference_df)
+            else:
+                st.error("Possible SQL injection. Check optimized query. Only SELECT statements are allowed")
 
     # Show diff below
     # st.markdown("### Changes")
@@ -281,6 +290,7 @@ def display_query_comparison(executor: SnowflakeQueryExecutor, original: str, op
 
 def show_performance_difference(original_query_df: pd.DataFrame, optimized_query_df: pd.DataFrame,
                                 difference_df: pd.DataFrame):
+    
     minimum_expected_columns = ['EXECUTION_TIME_SECONDS', 'MB_SCANNED', 'ROWS_PRODUCED', 'COMPILATION_TIME_SECONDS',
                                 'CREDITS_USED_CLOUD_SERVICES']
     st.markdown("### Original Query")
@@ -293,15 +303,21 @@ def show_performance_difference(original_query_df: pd.DataFrame, optimized_query
     if all([key in minimum_expected_columns for key in difference_records.keys()]):
         for column_name, column_value in difference_records.items():
             if column_name in ["EXECUTION_TIME_SECONDS", "COMPILATION_TIME_SECONDS"]:
-                column_name = column_name.replace("_SECONDS",'')
-                column_value_formatted = str(datetime.timedelta(seconds=abs(column_value)))
+                print(f"Original query df: {optimized_query_df}")
+                column_value_formatted = f"{column_value/original_query_df[column_name].iloc[0]: .2%}"
+                column_name = column_name.replace("_SECONDS",'_%')
             elif column_name == "CREDITS_USED_CLOUD_SERVICES":
-                column_value_formatted="{:.6f}".format(abs(column_value))
+                column_value_formatted = f"{column_value/original_query_df[column_name].iloc[0]: .2%}"
+                column_name = "CREDITS_USED_CLOUD_SERVICES" + "_%"
             elif column_name in ["MB_SCANNED", "ROWS_PRODUCED"]:
-                column_value_formatted=int(column_value)
+                try:
+                    column_value_formatted=int(column_value)
+                except:
+                    column_value_formatted=column_value
             else:
                 column_value_formatted = column_value
-            if column_value < 0:
+
+            if column_value > 0:
                 if column_name != 'ROWS_PRODUCED':
                     st.success(f"{column_name}: {column_value_formatted}")
                 else:
@@ -501,6 +517,7 @@ def split_sql_queries(content: str) -> List[str]:
     return queries
 
 def format_time_columns(df: pd.DataFrame) -> pd.DataFrame: 
+    df = df.copy() 
     columns_mapping = {
         'EXECUTION_TIME_SECONDS': 'EXECUTION_TIME',
         'COMPILATION_TIME_SECONDS': 'COMPILATION_TIME'
@@ -516,3 +533,38 @@ def format_time_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df[[col for col in new_columns if col in df.columns] + [col for col in df.columns if col not in new_columns]]
 
     return df
+
+def is_safe_select_query(query: str) -> bool:
+    """
+    Checks if the given Snowflake SQL query consists only of SELECT statements
+    and prevents SQL injection by disallowing other SQL commands.
+    
+    :param query: The SQL query string to check.
+    :return: True if the query is safe and contains only SELECT statements, False otherwise.
+    """
+    # Normalize query (strip spaces and convert to lowercase for checking)
+    query = query.strip().lower()
+    
+    # Disallow semicolons to prevent stacked queries
+    if ";" in query:
+        return False
+    
+    # Match only SELECT or WITH statements using regex
+    select_pattern = re.compile(r"^(\s*select\s+|\s*with\s+)", re.IGNORECASE)
+    
+    # Ensure it starts with SELECT or WITH and does not contain forbidden SQL keywords
+    forbidden_keywords = [
+        "insert", "update", "delete", "drop", "alter", "truncate", "create", "exec", "execute",
+        "merge", "grant", "revoke", "call", "begin", "commit", "rollback"
+    ]
+    
+    # Check if it starts with SELECT or WITH
+    if not select_pattern.match(query):
+        return False
+    
+    # Check for forbidden keywords
+    for keyword in forbidden_keywords:
+        if re.search(rf"\b{keyword}\b", query, re.IGNORECASE):
+            return False
+    
+    return True
