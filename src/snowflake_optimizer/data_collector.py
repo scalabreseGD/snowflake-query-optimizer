@@ -324,7 +324,9 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
     def compare_optimized_query_with_original(self, optimized_query, original_query: Optional[str], original_query_history: Optional[pd.Series] = pd.Series([]), waiting_timeout_in_secs=None) -> (
             pd.DataFrame, pd.DataFrame, pd.DataFrame):
 
-        def gather_query_data(query: str, session: Session):
+        def gather_query_data(query: str, session: Session, original_wh: Optional[str]=None):
+            if original_wh:
+                session.use_warehouse(original_wh)
             async_job = session.sql(query).collect(block=False)
             start_time = time.time()
             query_id = async_job.query_id
@@ -371,14 +373,15 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
             num_columns = original_query_df.select_dtypes(include=['number']).columns
             original_query_df = original_query_df[num_columns]
 
+        original_wh = original_query_history["WAREHOUSE_NAME"].iloc[0]
         optimized_query_df = self.execute_query_in_transaction(
-            snowpark_job=lambda session: gather_query_data(optimized_query, session))
+            snowpark_job=lambda session: gather_query_data(optimized_query, session, original_wh))
         num_columns = optimized_query_df.select_dtypes(include=['number']).columns
         optimized_query_df = optimized_query_df[num_columns]
         original_query_df = original_query_df[num_columns]
         
         # Compute the differences
-        diff_values = optimized_query_df[num_columns].iloc[0] - original_query_df[num_columns].iloc[0]
+        diff_values = (original_query_df[num_columns].iloc[0] - optimized_query_df[num_columns].iloc[0])
         return original_query_df, optimized_query_df, diff_values.to_frame().transpose()
 
     def compile_query(self, query) -> Optional[str]:
