@@ -294,9 +294,9 @@ def show_performance_difference(original_query_df: pd.DataFrame, optimized_query
     minimum_expected_columns = ['EXECUTION_TIME_SECONDS', 'MB_SCANNED', 'ROWS_PRODUCED', 'COMPILATION_TIME_SECONDS',
                                 'CREDITS_USED_CLOUD_SERVICES']
     st.markdown("### Original Query")
-    st.dataframe(format_time_columns(original_query_df))
+    st.dataframe(format_time_columns(original_query_df), hide_index=True)
     st.markdown("### Optimized Query")
-    st.dataframe(format_time_columns(optimized_query_df))
+    st.dataframe(format_time_columns(optimized_query_df), hide_index=True)
 
     st.markdown("### Performance Difference")
     difference_records = difference_df.to_dict(orient='records')[0]
@@ -545,9 +545,6 @@ def is_safe_select_query(query: str) -> bool:
     # Normalize query (strip spaces and convert to lowercase for checking)
     query = query.strip().lower()
     
-    # Disallow semicolons to prevent stacked queries
-    if ";" in query:
-        return False
     
     # Match only SELECT or WITH statements using regex
     select_pattern = re.compile(r"^(\s*select\s+|\s*with\s+)", re.IGNORECASE)

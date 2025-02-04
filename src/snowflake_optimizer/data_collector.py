@@ -320,8 +320,8 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
                 return snowpark_job(session)
             else:
                 raise ValueError('No query or snowpark_job specified')
-
-    def compare_optimized_query_with_original(self, optimized_query, original_query: Optional[str], original_query_history: Optional[pd.Series] = pd.Series([]), waiting_timeout_in_secs=None) -> (
+    @streamlit.cache_data(show_spinner=False)
+    def compare_optimized_query_with_original(_self, optimized_query, original_query: Optional[str], original_query_history: Optional[pd.Series] = pd.Series([]), waiting_timeout_in_secs=None) -> (
             pd.DataFrame, pd.DataFrame, pd.DataFrame):
 
         def gather_query_data(query: str, session: Session, original_wh: Optional[str]=None):
@@ -368,13 +368,13 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
             original_query_history.columns = original_query_history.columns.str.upper()
             original_query_df = original_query_history
         else:
-            original_query_df = self.execute_query_in_transaction(
+            original_query_df = _self.execute_query_in_transaction(
             snowpark_job=lambda session: gather_query_data(original_query, session))
             num_columns = original_query_df.select_dtypes(include=['number']).columns
             original_query_df = original_query_df[num_columns]
 
         original_wh = original_query_history["WAREHOUSE_NAME"].iloc[0]
-        optimized_query_df = self.execute_query_in_transaction(
+        optimized_query_df = _self.execute_query_in_transaction(
             snowpark_job=lambda session: gather_query_data(optimized_query, session, original_wh))
         num_columns = optimized_query_df.select_dtypes(include=['number']).columns
         optimized_query_df = optimized_query_df[num_columns]
