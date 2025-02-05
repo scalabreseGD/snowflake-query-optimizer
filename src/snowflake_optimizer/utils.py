@@ -8,6 +8,7 @@ import re
 from typing import List, Dict, Optional
 import datetime
 from decimal import Decimal
+import os
 
 import pandas as pd
 import sqlparse
@@ -565,3 +566,9 @@ def is_safe_select_query(query: str) -> bool:
             return False
     
     return True
+
+actual_path = os.path.dirname(os.path.abspath(__file__))
+def udp_logo():
+    # actual_path = os.path.dirname(os.path.abspath(__file__))
+    col1, col2, col3 = st.columns([0.5, 0.3, 0.5])
+    col2.image(f"{actual_path}/images/udp_logo.png", use_container_width=True)

@@ -11,7 +11,7 @@ from snowflake_optimizer.data_collector import QueryMetricsCollector, SnowflakeQ
 from snowflake_optimizer.models import InputAnalysisModel
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 from snowflake_optimizer.utils import format_sql, init_common_states, \
-    create_results_expanders, create_export_excel_from_results, evaluate_or_repair_query
+    create_results_expanders, create_export_excel_from_results, evaluate_or_repair_query, udp_logo
 
 
 def render_query_history_view(page_id: str,
@@ -229,6 +229,7 @@ def _get_databases(_collector):
 def main():
     st.set_page_config(page_title="Query History")
     page_id = 'query_history'
+    udp_logo()
     # Initialize connections
     _collector, _analyzer = initialize_connections(page_id, get_cache(1))
     executor = get_snowflake_query_executor()
