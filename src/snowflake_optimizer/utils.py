@@ -568,7 +568,9 @@ def is_safe_select_query(query: str) -> bool:
     return True
 
 actual_path = os.path.dirname(os.path.abspath(__file__))
-def udp_logo():
-    # actual_path = os.path.dirname(os.path.abspath(__file__))
+def udp_theme():
+    with open(f"{actual_path}/assets/style.css") as css:
+        st.markdown( f'<style>{css.read()}</style>' , unsafe_allow_html= True)
     col1, col2, col3 = st.columns([0.5, 0.3, 0.5])
-    col2.image(f"{actual_path}/images/udp_logo.png", use_container_width=True)
+    col2.image(f"{actual_path}/assets/udp_logo.png", use_container_width=True)
+    st.logo(f"{actual_path}/assets/ib_logo.png", size = "large")

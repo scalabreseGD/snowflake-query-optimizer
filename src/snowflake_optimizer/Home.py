@@ -9,7 +9,7 @@ import os
 
 from snowflake_optimizer.connections import initialize_connections, get_snowflake_query_executor
 from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
-from snowflake_optimizer.utils import show_performance_difference, udp_logo
+from snowflake_optimizer.utils import show_performance_difference, udp_theme
 
 # Load environment variables
 load_dotenv()
@@ -177,13 +177,9 @@ def add_logo(path):
 def main():
     """Main function to run the Streamlit application."""
     logging.info("Starting main application")
-    udp_logo()
-    # actual_path = os.path.dirname(os.path.abspath(__file__))
-    # col1, col2, col3 = st.columns([0.5, 0.3, 0.5])
-    # col2.image(f"{actual_path}/images/udp_logo.png", use_container_width=True)
+    udp_theme()
     st.title("Snowflake Query Optimizer")
     st.write("Analyze and optimize your Snowflake SQL queries")
-
 
 logging.debug("Main application loop completed")
 
