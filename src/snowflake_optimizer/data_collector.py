@@ -1,5 +1,5 @@
 """Module for collecting query performance data from Snowflake."""
-import collections
+import json
 import time
 from typing import Dict, Any, Optional, Literal, Callable, List
 
@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit
 from snowflake.snowpark import Session, DataFrame
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import SQLAlchemyError, ProgrammingError
+from sqlalchemy.exc import ProgrammingError
 
 from snowflake_optimizer.models import SchemaInfo, ColumnInfo
 
@@ -124,6 +124,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 QUERY_ID,
                 QUERY_TEXT,
                 QUERY_HASH,
+                ROLE_NAME,
                 USER_NAME,
                 DATABASE_NAME,
                 SCHEMA_NAME,
@@ -163,10 +164,11 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 conn
             )
         return df
+
     @streamlit.cache_data(show_spinner="Fetching Query ID History")
     def get_query_history_for_query_id(
-        _self,
-        query_id: str
+            _self,
+            query_id: str
     ) -> pd.DataFrame:
         """Fetch expensive queries from Snowflake query history.
 
@@ -181,6 +183,7 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 QUERY_ID,
                 QUERY_TEXT,
                 QUERY_HASH,
+                ROLE_NAME,
                 USER_NAME,
                 DATABASE_NAME,
                 SCHEMA_NAME,
@@ -203,9 +206,9 @@ class QueryMetricsCollector(SnowflakeDataCollector):
                 QUERY_ID = '{query_id}';"""
         with _self._engine.connect() as conn:
             df = pd.read_sql(
-                    query,
-                    conn
-                )
+                query,
+                conn
+            )
         return df
 
     @streamlit.cache_data(show_spinner=False)
@@ -249,47 +252,28 @@ class QueryMetricsCollector(SnowflakeDataCollector):
             Dictionary containing the objects metadata
         """
         metadata = []
-        for _, row in impacted_objects.iterrows():
-            object_name = row.iloc[0]
-            table_catalog, table_schema, table_name = object_name.split('.')
-            # desc_query = f"""DESC TABLE {object_name}"""
-            desc_query = f"""
-                SELECT COLUMN_NAME, DATA_TYPE::VARIANT as DATA_TYPE
-                FROM SNOWFLAKE.ACCOUNT_USAGE.COLUMNS 
-                WHERE 
-                TABLE_CATALOG = '{table_catalog}' AND
-                TABLE_SCHEMA = '{table_schema}' AND
-                TABLE_NAME = '{table_name}'
-                AND DELETED IS NULL;
-                """
-            try:
-                with _self._engine.connect() as conn:
-                    columns_dict = pd.read_sql(desc_query, conn).to_dict(orient="records")
-                    columns_dict = [ColumnInfo(column_name=column['column_name'], column_type=column['data_type']) for
-                                    column in columns_dict]
-
-            except:
-                print(f"No metadata for object: {object_name} in SNOWFLAKE.ACCOUNT_USAGE.COLUMNS")
-            try:
-                table_catalog, table_schema, table_name = object_name.split('.')
-                query = f"""
-                    SELECT ROW_COUNT, BYTES
-                    FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES 
-                    WHERE
-                    table_name = '{table_name}' AND
-                    table_schema = '{table_schema}' AND
-                    table_catalog = '{table_catalog}' AND
-                    DELETED is NULL;
-                    """
-                with _self._engine.connect() as conn:
-                    metadata_dict = pd.read_sql(query, conn).to_dict(orient="records")[0]
-            except:
-                print(f"No metadata for object: {object_name} in SNOWFLAKE.ACCOUNT_USAGE.TABLES")
-
-            metadata.append(SchemaInfo(table_name=object_name,
-                                       columns=columns_dict,
-                                       row_count=metadata_dict.get("row_count"),
-                                       size_bytes=metadata_dict.get("bytes")))
+        table_names = ','.join(["\'" + t['table_name'] + "\'" for t in impacted_objects.to_dict(orient='records')])
+        query = f"""
+        SELECT concat_ws('.', T.TABLE_CATALOG, T.TABLE_SCHEMA, T.TABLE_NAME) as TABLE_NAME, 
+            SUM(ROW_COUNT) as ROW_COUNT, SUM(BYTES) as BYTES,
+            TO_JSON(OBJECT_AGG(C.COLUMN_NAME, C.DATA_TYPE::VARIANT)) as DATA_TYPE
+        FROM SNOWFLAKE.ACCOUNT_USAGE.TABLES T 
+        LEFT JOIN SNOWFLAKE.ACCOUNT_USAGE.COLUMNS C on t.table_id = c.table_id
+        WHERE 
+            concat_ws('.', T.TABLE_CATALOG, T.TABLE_SCHEMA, T.TABLE_NAME) IN ({table_names})
+            AND c.deleted is null
+            GROUP BY 1;
+        """
+        with _self._engine.connect() as conn:
+            columns_table_meta = pd.read_sql(query, conn).to_dict(orient="records")
+        for column_table_metadata in columns_table_meta:
+            columns_datatype = json.loads(column_table_metadata['data_type'])
+            columns = [ColumnInfo(column_name=k, column_type=v) for k,v in columns_datatype.items()]
+            metadata.append(SchemaInfo(
+                table_name=column_table_metadata['table_name'],
+                columns=columns,
+                row_count=column_table_metadata["row_count"],
+                size_bytes=column_table_metadata["bytes"]))
         return metadata
 
     def get_query_plan(self, query_id: str) -> Dict[str, Any]:
@@ -320,11 +304,14 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
                 return snowpark_job(session)
             else:
                 raise ValueError('No query or snowpark_job specified')
+
     @streamlit.cache_data(show_spinner=False)
-    def compare_optimized_query_with_original(_self, optimized_query, original_query: Optional[str], original_query_history: Optional[pd.Series] = pd.Series([]), waiting_timeout_in_secs=None) -> (
+    def compare_optimized_query_with_original(_self, optimized_query, original_query: Optional[str],
+                                              original_query_history: Optional[pd.Series] = pd.Series([]),
+                                              waiting_timeout_in_secs=None) -> (
             pd.DataFrame, pd.DataFrame, pd.DataFrame):
 
-        def gather_query_data(query: str, session: Session, original_wh: Optional[str]=None):
+        def gather_query_data(query: str, session: Session, original_wh: Optional[str] = None):
             if original_wh:
                 session.use_warehouse(original_wh)
             async_job = session.sql(query).collect(block=False)
@@ -362,14 +349,14 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
                     time.sleep(retry_seconds)
                     retry_seconds *= 2
             return async_def_job
-        
+
         if not original_query_history.empty:
             original_query_history = pd.DataFrame([original_query_history])
             original_query_history.columns = original_query_history.columns.str.upper()
             original_query_df = original_query_history
         else:
             original_query_df = _self.execute_query_in_transaction(
-            snowpark_job=lambda session: gather_query_data(original_query, session))
+                snowpark_job=lambda session: gather_query_data(original_query, session))
             num_columns = original_query_df.select_dtypes(include=['number']).columns
             original_query_df = original_query_df[num_columns]
 
@@ -379,7 +366,7 @@ class SnowflakeQueryExecutor(SnowflakeDataCollector):
         num_columns = optimized_query_df.select_dtypes(include=['number']).columns
         optimized_query_df = optimized_query_df[num_columns]
         original_query_df = original_query_df[num_columns]
-        
+
         # Compute the differences
         diff_values = (original_query_df[num_columns].iloc[0] - optimized_query_df[num_columns].iloc[0])
         return original_query_df, optimized_query_df, diff_values.to_frame().transpose()

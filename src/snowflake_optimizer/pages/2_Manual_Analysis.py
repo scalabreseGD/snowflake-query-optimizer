@@ -10,7 +10,7 @@ from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
 from snowflake_optimizer.models import SchemaInfo, InputAnalysisModel, ColumnInfo
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 from snowflake_optimizer.utils import format_sql, split_sql_queries, \
-    init_common_states, create_results_expanders, create_export_excel_from_results, evaluate_or_repair_query, udp_logo
+    init_common_states, create_results_expanders, create_export_excel_from_results, evaluate_or_repair_query, udp_theme
 
 
 def render_manual_analysis_view(page_id: str,
@@ -166,7 +166,8 @@ def render_manual_analysis_view(page_id: str,
             # Display results if available
             if st.session_state.get(f"{page_id}_batch_results"):
                 st.markdown("### Analysis Results")
-                create_results_expanders(executor, st.session_state[f"{page_id}_batch_results"])
+                results = create_results_expanders(executor, st.session_state[f"{page_id}_batch_results"])
+                st.session_state[f"{page_id}_analysis_results"] = results
                 create_export_excel_from_results(st.session_state[f"{page_id}_batch_results"])
 
     # Display analysis results if available
@@ -177,7 +178,8 @@ def render_manual_analysis_view(page_id: str,
                                             analyzer=analyzer) for result in results]
         st.session_state[f"{page_id}_analysis_results"] = results
 
-        create_results_expanders(executor, results)
+        results = create_results_expanders(executor, results)
+        st.session_state[f"{page_id}_analysis_results"] = results
         create_export_excel_from_results(results)
 
 
@@ -223,7 +225,7 @@ def __analyze_query_callback(page_id, analyzer: Optional[QueryAnalyzer]):
 def main():
     st.set_page_config(page_title="Manual Analysis")
     page_id = 'manual_analysis'
-    udp_logo()
+    udp_theme(page_id)
     # Initialize connections
     _collector, _analyzer = initialize_connections(page_id, get_cache(1))
     executor = get_snowflake_query_executor()

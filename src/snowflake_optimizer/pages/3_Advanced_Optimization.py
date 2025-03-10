@@ -7,7 +7,7 @@ from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
 from snowflake_optimizer.models import InputAnalysisModel
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 from snowflake_optimizer.utils import init_common_states, create_results_expanders, \
-    create_export_excel_from_results, evaluate_or_repair_query, udp_logo
+    create_export_excel_from_results, evaluate_or_repair_query, udp_theme
 
 
 def render_advanced_optimization_view(page_id,
@@ -72,7 +72,8 @@ def render_advanced_optimization_view(page_id,
                                             analyzer=analyzer) for result in results]
         st.session_state[f"{page_id}_analysis_results"] = results
 
-        create_results_expanders(executor, results)
+        results = create_results_expanders(executor, results)
+        st.session_state[f"{page_id}_analysis_results"] = results
         create_export_excel_from_results(results)
     else:
         st.error("Failed to analyze query. Please try again.")
@@ -82,10 +83,10 @@ def main():
     st.set_page_config(page_title="Advanced Optimization")
     actual_path = os.path.dirname(os.path.abspath(__file__))
     col1, col2, col3 = st.columns([0.5, 0.3, 0.5])
-    col2.image(f"{actual_path}/assets/Under_construction.gif", use_container_width=True)
+    col2.image(f"{actual_path}/temp/Under_construction.gif", use_container_width=True)
     st.warning("Work in progress!")
-    udp_logo()
     page_id = 'advanced_optimization'
+    udp_theme(page_id)
     # Initialize connections
     _collector, _analyzer = initialize_connections(page_id, get_cache(1))
     executor = get_snowflake_query_executor()

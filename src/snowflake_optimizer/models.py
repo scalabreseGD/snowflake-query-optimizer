@@ -60,6 +60,7 @@ class OutputAnalysisModel(BaseModel):
     original_query: str
     schema_info: Optional[List[SchemaInfo]] = Field(default=None, description="List of schema info")
     analysis: QueryAnalysis
+    comparison_metrics: Optional[Dict[str, str]] = Field(default=None, description="Dictionary with all the metrics after comparison. Can be null.")
 
     def __getitem__(self, item):
         return getattr(self, item)

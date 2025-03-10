@@ -583,7 +583,9 @@ The query must be syntactically valid Snowflake SQL.
 Only reference existing tables and columns.
 Do not include any other text.
 Do not add comments or explanations.
-The optimized query must return exactly the same results as the original."""
+The optimized query must return exactly the same results as the original.
+If there are no optimizations needed provide same query as original one.
+If you are unable to generate optimizeed query, return empty string."""
 
         try:
             response_text = self.__run_chat_completion(

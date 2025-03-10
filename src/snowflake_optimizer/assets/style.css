@@ -1,0 +1,11 @@
+[data-testid=stSidebar] {
+        font-size: 16px;
+        background-color: #c9252c;
+    }
+[data-testid="stSidebarContent"] {
+    color: #F7F8F8;
+    background-color: #c9252c;
+}
+[data-testid="stSidebarNav"] span {
+    color: #F7F8F8;
+}

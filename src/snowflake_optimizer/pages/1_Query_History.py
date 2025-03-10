@@ -1,6 +1,7 @@
-import logging, os
-from typing import Optional
 import datetime
+import logging
+import os
+from typing import Optional
 
 import streamlit as st
 from dotenv import load_dotenv
@@ -11,7 +12,7 @@ from snowflake_optimizer.data_collector import QueryMetricsCollector, SnowflakeQ
 from snowflake_optimizer.models import InputAnalysisModel
 from snowflake_optimizer.query_analyzer import QueryAnalyzer
 from snowflake_optimizer.utils import format_sql, init_common_states, \
-    create_results_expanders, create_export_excel_from_results, evaluate_or_repair_query, udp_logo
+    create_results_expanders, create_export_excel_from_results, evaluate_or_repair_query, udp_theme
 
 
 def render_query_history_view(page_id: str,
@@ -39,31 +40,35 @@ def render_query_history_view(page_id: str,
         st.session_state[f"{page_id}_selected_query_id"] = None
 
     logging.info("Rendering query history view")
-    st.header("Query History Analysis")
+    st.header("UDP Query History Analysis")
 
     # Sidebar configuration
     # Query input methods
     input_method = st.radio(
         "Choose input method",
         ["Direct Input", "History search"],
-        disabled=not (f"{page_id}_query_id" not in st.session_state and f"{page_id}_current_page" not in st.session_state),
+        disabled=not (
+                    f"{page_id}_query_id" not in st.session_state and f"{page_id}_current_page" not in st.session_state),
         help="Refresh page to choose other method"
     )
 
     with st.spinner('Loading Page'):
         if input_method == "Direct Input":
-        # with st.expander("Manual Query ID input", expanded=False):
+            # with st.expander("Manual Query ID input", expanded=False):
             st.session_state[f"{page_id}_query_id"] = st.text_input("Query ID")
             # if st.button(label="Get Query History"):
             if st.session_state[f"{page_id}_query_id"]:
                 query_history = collector.get_query_history_for_query_id(st.session_state[f"{page_id}_query_id"])
-                query_history['execution_time (hh:mm:ss)'] = query_history['execution_time_seconds'].map(lambda a: str(datetime.timedelta(seconds=a))[:7])
+                query_history['execution_time (hh:mm:ss)'] = query_history['execution_time_seconds'].map(
+                    lambda a: str(datetime.timedelta(seconds=a))[:7])
                 row = st.dataframe(
                     query_history[[
                         "query_id",
                         "execution_time (hh:mm:ss)",
                         "mb_scanned",
-                        "rows_produced"
+                        "rows_produced",
+                        'role_name',
+                        'user_name'
                     ]],
                     hide_index=True,
                     on_select="rerun",
@@ -140,15 +145,18 @@ def render_query_history_view(page_id: str,
                         page=st.session_state[f"{page_id}_current_page"],
                         db_schema_filter=database_schemas_filter
                     )
-                    query_history['execution_time (hh:mm:ss)'] = query_history['execution_time_seconds'].map(lambda a: str(datetime.timedelta(seconds=a))[:7])
+                    query_history['execution_time (hh:mm:ss)'] = query_history['execution_time_seconds'].map(
+                        lambda a: str(datetime.timedelta(seconds=a))[:7])
 
-                    st.info("Select queries from the dataframe below clicking on the left of the table")
+                    st.info("Select queries from the table below clicking on the left of the table")
                     row = st.dataframe(
                         query_history[[
                             "query_id",
                             "execution_time (hh:mm:ss)",
                             "mb_scanned",
-                            "rows_produced"
+                            "rows_produced",
+                            'role_name',
+                            'user_name'
                         ]],
                         hide_index=True,
                         on_select="rerun",
@@ -174,6 +182,11 @@ def render_query_history_view(page_id: str,
                 for i in row['selection']['rows']:
                     selected_row = query_history.iloc[i]
                     with st.expander(f"Query_id: {selected_row['query_id']}"):
+                        st.markdown(f"""
+|USER_NAME|ROLE_NAME|
+|---|---|
+|{selected_row['user_name']}|{selected_row['role_name']}|
+                        """)
                         st.code(format_sql(selected_row['query_text']), language="sql")
 
                 if st.button("Analyze Query"):
@@ -216,7 +229,8 @@ def render_query_history_view(page_id: str,
         if st.session_state[f"{page_id}_analysis_results"]:
             st.markdown("### Analysis Results")
             # create_results_expanders(st.session_state[f"{page_id}_analysis_results"])
-            create_results_expanders(executor, st.session_state[f"{page_id}_analysis_results"], selected_row)
+            results = create_results_expanders(executor, st.session_state[f"{page_id}_analysis_results"], selected_row)
+            st.session_state[f"{page_id}_analysis_results"] = results
             create_export_excel_from_results(st.session_state[f"{page_id}_analysis_results"])
 
 
@@ -229,7 +243,7 @@ def _get_databases(_collector):
 def main():
     st.set_page_config(page_title="Query History")
     page_id = 'query_history'
-    udp_logo()
+    udp_theme(page_id)
     # Initialize connections
     _collector, _analyzer = initialize_connections(page_id, get_cache(1))
     executor = get_snowflake_query_executor()

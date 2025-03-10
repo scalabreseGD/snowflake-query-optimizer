@@ -5,11 +5,8 @@ from typing import List, Dict
 
 import streamlit as st
 from dotenv import load_dotenv
-import os
 
-from snowflake_optimizer.connections import initialize_connections, get_snowflake_query_executor
-from snowflake_optimizer.data_collector import SnowflakeQueryExecutor
-from snowflake_optimizer.utils import show_performance_difference, udp_logo
+from snowflake_optimizer.utils import udp_theme
 
 # Load environment variables
 load_dotenv()
@@ -151,18 +148,20 @@ Query to analyze:
 {query}
 
 Provide the analysis in the exact JSON format specified above."""
+
+
 def add_logo(path):
     st.markdown(
-        f"""
+        """
         <style>
             [data-testid="stSidebarNav"] {
-                background-image: url(http://placekitten.com/200/200);
+        background - image: url(http://placekitten.com/200/200);
                 background-repeat: no-repeat;
                 padding-top: 120px;
                 background-position: 20px 20px;
             }
             [data-testid="stSidebarNav"]::before {
-                content: "My Company Name";
+        content: "UQOP";
                 margin-left: 20px;
                 margin-top: 20px;
                 font-size: 30px;
@@ -174,15 +173,21 @@ def add_logo(path):
         unsafe_allow_html=True,
     )
 
+
 def main():
     """Main function to run the Streamlit application."""
     logging.info("Starting main application")
-    udp_logo()
-    # actual_path = os.path.dirname(os.path.abspath(__file__))
-    # col1, col2, col3 = st.columns([0.5, 0.3, 0.5])
-    # col2.image(f"{actual_path}/images/udp_logo.png", use_container_width=True)
-    st.title("Snowflake Query Optimizer")
-    st.write("Analyze and optimize your Snowflake SQL queries")
+    udp_theme()
+    st.title("UQOP - UDP Query Optimizer")
+    st.markdown("""
+### Optimal SQL Performance in Snowflake
+**AI-driven** SQL Optimizer for **Snowflake**. Leverage the **Query Optimizer** to:
+- Refine execution plans
+- Minimize resource usage
+- Enhance efficiency
+
+**Utilize AI-powered cost-based analysis and intelligent tuning for faster, scalable, and cost-effective data processing.**
+    """)
 
 
 logging.debug("Main application loop completed")
