@@ -71,23 +71,23 @@ An intelligent SQL query optimization tool powered by Azure OpenAI, designed to 
 4. Set up credentials:
    Create `.streamlit/secrets.toml` with your credentials:
    ```toml
-   # Snowflake credentials
-   SNOWFLAKE_ACCOUNT = "your-account"
-   SNOWFLAKE_USER = "your-username"
-   SNOWFLAKE_PASSWORD = "your-password"
-   SNOWFLAKE_WAREHOUSE = "your-warehouse"
-   SNOWFLAKE_DATABASE = "your-database"  # Optional
-   SNOWFLAKE_SCHEMA = "your-schema"      # Optional
-
-   # Anthropic API key
-   ANTHROPIC_API_KEY = "your-claude-api-key"
+    API_KEY = <>
+    API_TYPE = <>
+    API_VERSION = <>
+    API_ENDPOINT = <>
+    DEPLOYMENT_NAME = <>
+    
+    SNOWFLAKE_ACCOUNT = <>
+    SNOWFLAKE_USER = <>
+    SNOWFLAKE_PASSWORD = <>
+    SNOWFLAKE_WAREHOUSE = <>
    ```
 
 ## Usage
 
 Run the Streamlit application:
 ```bash
-streamlit run src/snowflake_optimizer/app.py
+streamlit run src/snowflake_optimizer/Home.py
 ```
 
 ### Query History Analysis
